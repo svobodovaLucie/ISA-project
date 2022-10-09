@@ -615,7 +615,6 @@ int main(int argc, char *argv[]) {
 
   // -------------------------------------------------------------------------------------------
   // create a netflow packet
-  /*
   Netflowhdr netflowhdr;
   netflowhdr.version = 5;
   netflowhdr.count = 1;
@@ -649,15 +648,15 @@ int main(int argc, char *argv[]) {
   flowformat.dst_mask = 0;
   flowformat.pad2 = 0;
 
-  NetFlowPacket netflowpacket;
-  netflowpacket.netflowhdr = netflowhdr;
-  netflowpacket.flowformat = flowformat;
-  */
+  NetFlowPacket *netflowpacket = new NetFlowPacket;
+  netflowpacket->netflowhdr = netflowhdr;
+  netflowpacket->flowformat = flowformat;
 
   // -------------------------------------------------------------------------------------------
   // exporting
   int sock;                        // socket descriptor
-  int msg_size, i;
+  int msg_size = 100;
+  int i;
   struct sockaddr_in server, client;   // address structures of the server and the client
   struct hostent *servent;         // network host entry required by gethostbyname()
   socklen_t len, fromlen;        
@@ -691,11 +690,11 @@ int main(int argc, char *argv[]) {
     err(1, "connect() failed");
 
   //send data to the server
-  while((msg_size=read(STDIN_FILENO,buffer,1024)) > 0) 
+  //while((msg_size=read(STDIN_FILENO,buffer,1024)) > 0) 
       // read input data from STDIN (console) until end-of-line (Enter) is pressed
       // when end-of-file (CTRL-D) is received, n == 0
-  { 
-    i = send(sock,buffer,msg_size,0);     // send data to the server
+  //{ 
+    i = send(sock,netflowpacket,msg_size,0);     // send data to the server
     if (i == -1)                   // check if data was sent correctly
       err(1,"send() failed");
     else if (i != msg_size)
@@ -718,7 +717,7 @@ int main(int argc, char *argv[]) {
       printf("* UDP packet received from %s, port %d\n",inet_ntoa(client.sin_addr),ntohs(client.sin_port));
       printf("%.*s",i,buffer);                   // print the answer
     }
-  } 
+  //} 
   // reading data until end-of-file (CTRL-D)
 
   if (msg_size == -1)
