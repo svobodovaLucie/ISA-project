@@ -228,40 +228,6 @@ void print_frame(size_t length, const u_char *frame) {
 }
 
 /**
- * Function prints more information about ARP packet. It prints sender and target
- * MAC addresses, sender and target IP addresses, opcode and frame data.
- *
- * @param header packet header
- * @param packet frame data
- */
-void process_arp(struct pcap_pkthdr header, const u_char *packet) {
-    printf("protocol: ARP\n");
-    // cast frame data to ether_arp structure
-    struct ether_arp *arp = (struct ether_arp*)(packet + ETH_HEADER_SIZE);
-
-    // print opcode number
-    if ((arp->ea_hdr.ar_op = htons(arp->ea_hdr.ar_op)) == 1)
-        printf("opcode: 1 (request)\n");
-    else if (arp->ea_hdr.ar_op == 2)
-        printf("opcode: 2 (reply)\n");
-    else
-        printf("opcode: %hu\n", arp->ea_hdr.ar_op);
-    // print sender and target MAC and IP addresses
-    printf("sender MAC address: %02x:%02x:%02x:%02x:%02x:%02x\n",
-           arp->arp_sha[0], arp->arp_sha[1], arp->arp_sha[2],
-           arp->arp_sha[3], arp->arp_sha[4], arp->arp_sha[5]);
-    printf("sender IP address: %d.%d.%d.%d\n",
-           arp->arp_spa[0], arp->arp_spa[1], arp->arp_spa[2], arp->arp_spa[3]);
-    printf("target MAC address: %02x:%02x:%02x:%02x:%02x:%02x\n",
-           arp->arp_tha[0], arp->arp_tha[1], arp->arp_tha[2],
-           arp->arp_tha[3], arp->arp_tha[4], arp->arp_tha[5]);
-    printf("target IP address: %d.%d.%d.%d\n",
-           arp->arp_tpa[0], arp->arp_tpa[1], arp->arp_tpa[2], arp->arp_tpa[3]);
-    // print frame data
-    print_frame(header.caplen, packet);
-}
-
-/**
  * Function prints more information about UDP packet. It prints source
  * and destination ports, checksum and the frame data;
  *
@@ -530,9 +496,7 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
     // get etherType
     eth->ether_type = ntohs(eth->ether_type);
     // process and print the packet
-    if (eth->ether_type == ARP)
-        process_arp(*header, packet);
-    else if (eth->ether_type == IPv4)
+    if (eth->ether_type == IPv4)
         process_ipv4(*header, packet);
     else if (eth->ether_type == IPv6)
         process_ipv6(*header, packet);
