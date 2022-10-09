@@ -17,7 +17,10 @@
 /**
  * Constants used in the programme.
  */
-
+#define ETH_HEADER_SIZE   14     // size of the Ethernet header (14 bytes)
+#define IPV6_HEADER_SIZE  40     // size of the IPv6 header (40 bytes)
+#define MAX_TIMESTAMP_LEN 22     // max length of timestamp buffer used
+#define FRAME_PRINT_LEN   16     // length of the data to be printed on one line
 
 /**
  * Global variables used in the programme.
@@ -25,6 +28,19 @@
 char errbuf[PCAP_ERRBUF_SIZE];   // buffer used for storing error strings from pcap functions
 int sigint_received;             // variable that indicates if a SIGINT signal was received
 pcap_t *pcap;                    // pcap handler
+
+/**
+ * Enumeration used for ether types.
+ * List of ether types: https://en.wikipedia.org/wiki/EtherType
+ */
+enum ether_types {IPv4 = 0x0800, ARP = 0x0806, IPv6 = 0x86DD};
+
+/**
+ * Enumeration used for IP protocols.
+ * List of IP protocols: https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
+ */
+enum ip_protocols {ICMPv4 = 1, TCP = 6, UDP = 17, ICMPv6 = 58, NO_NEXT_HEADER = 59};
+
 
 /**
  * Structure used for storing command line options.
