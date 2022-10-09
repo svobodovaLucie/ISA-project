@@ -29,15 +29,15 @@ pcap_t *pcap;                    // pcap handler
 /**
  * Structure used for storing command line options.
  */
-typedef struct options {
+struct Options {
     std::string file = "-";                       // name of the analyzed file
     //int netflow_collector_address;    // TODO NetFlow collector IP address - bud to nebo hostname
     std::string netflow_collector = "127.0.0.1";          // TODO NetFlow collector hostname - ukladat jako string jak adresu tak hostname, pak zkusit prevest na ipv4 adresu, pokud nejde, tak na hostname, pokud nejde tak invalid
-    unsigned port;                    // NetFlow collector UDP port
-    unsigned active_timer;            // active interval
-    unsigned inactive_timer;          // inactive interval
-    unsigned count;                   // flow-cache size
-} options_t;
+    unsigned port = 2055;                    // NetFlow collector UDP port
+    unsigned active_timer = 60;            // active interval
+    unsigned inactive_timer = 10;          // inactive interval
+    unsigned count = 1024;                   // flow-cache size
+};
 
 // NetFlow protocol struct
 /*

@@ -45,7 +45,7 @@ void print_help() {
  *
  * @return 0 if successful, 1 if an error occurred, 2 if the help option is present
  */
-int load_opts(options_t *opts, int argc, char *argv[])
+int load_opts(Options *opts, int argc, char *argv[])
 {
   // allocate size for the netflow_collector argument
   /*
@@ -57,29 +57,14 @@ int load_opts(options_t *opts, int argc, char *argv[])
   }
   */
   std::string tmp;
-
-  // initialise the structure with default values
-  opts->file.resize(strlen("-") + 2);
-  opts->file = "-";
-  printf("Capacity2: %ld\n", opts->file.capacity());
-                         // "-" -> STDIN
-  //opts->netflow_collector = "127.0.0.1";    // TODO IPv4 address
-  opts->netflow_collector.resize(strlen("127.0.0.1") + 2);
-  opts->netflow_collector = "127.0.0.1";
-  printf("Capacity2: %ld\n", opts->netflow_collector.capacity());
-  //opts->netflow_collector.copy("127.0.0.1", 9, 0);
-  //sprintf(opts->netflow_collector, "127.0.0.1"); // write to netflow_collector
-  opts->port = 2055;
-  opts->active_timer = 60;
-  opts->inactive_timer = 10;
-  opts->count = 1024;
+  //int tmp_port;
+  //  the struct is already initialised with the default values
   
   // define variables used in getopt_long() function
   opterr = 0; // suppress default error messages
   // parse the command line options using getopt() function
   int res;
-  while ((res = getopt(argc, argv, ":f:c:a:i:m:h")) != -1)
-  { // TODO port nse nezapisuje jako p, ale je soucasti c za :xxxx
+  while ((res = getopt(argc, argv, ":f:c:a:i:m:h")) != -1) { // TODO port nse nezapisuje jako p, ale je soucasti c za :xxxx
     // while ((res = getopt_long(argc, argv, optstring, longopts, &longindex)) != -1) {
     //  TODO check aby neproslo napr. -m 76565y (ted projde)
     switch (res) {
@@ -87,38 +72,19 @@ int load_opts(options_t *opts, int argc, char *argv[])
       // help will be printed in main() - returns 2
       return 2;
     case 'f': // file
-      // pokud neni -> stdin (uz nastaveno defaultne, ted jen zajistit aby to byl stdin)
-      // zkontrolovat, jestli dana file existuje
-      // alokovat misto pro opts->file
-      // zkontrolovat malloc
-      // zapsat file (musim zapisovat, pokud si ji otevru stejne jako stdin? asi jo, abych ji pak mohla zavrit)
+      // copy optarg to opts->file
+      opts->file.resize(0);
+      opts->file.append(optarg);
 
-      /*
-        // convert string to number if valid
-        try {
-          //if (std::stoi(optarg) >= 0)
-          //  opts->count = std::stoi(optarg);
-          //else
-          //  throw std::invalid_argument("");
-          //printf("bylo zadano f: %s", opts->file);
-        } catch (...) {
-          fprintf(stderr, "invalid number in command line options\n");
-          free(opts->file);   // TODO ne vzdy
-          free(opts->netflow_collector);
-          return 1;
-        }
-      */
-      printf("f: %s\n", optarg);
+      std::cout << "f: " << opts->file << std::endl;
       break;
     case 'c':
-      
       tmp.resize(260);
       tmp = optarg;
-      //sprintf(opts->netflow_collector, "%s", optarg);
-      //printf("-c: %s\n", opts->netflow_collector);
-      std::cout << "-c: " << opts->netflow_collector << '\n';
       // check address/hostname format
-      opts->netflow_collector = tmp.substr(0, tmp.find_last_of(":"));   // address[hostname]
+      opts->netflow_collector.resize(0);
+      opts->netflow_collector.append(tmp.substr(0, tmp.find_last_of(":")));   // address[hostname]
+      // port number
       tmp = tmp.substr(tmp.find_last_of(":") + 1);
       try {
         if (std::stoi(tmp) >= 0)
@@ -127,8 +93,7 @@ int load_opts(options_t *opts, int argc, char *argv[])
           throw std::invalid_argument("");
       } catch (...) {
         fprintf(stderr, "invalid port number\n");
-        //free(opts->file); // TODO ne vzdy
-        //free(opts->netflow_collector);
+        delete opts;  // FIXME release_resources
         return 1;
       }
       
@@ -144,8 +109,7 @@ int load_opts(options_t *opts, int argc, char *argv[])
           throw std::invalid_argument("");
       } catch (...) {
         fprintf(stderr, "invalid number in option -a\n");
-        //free(opts->file); // TODO ne vzdy
-        //free(opts->netflow_collector);
+        delete opts;  // FIXME release_resources
         return 1;
       }
       printf("-a: %u\n", opts->active_timer);
@@ -158,36 +122,31 @@ int load_opts(options_t *opts, int argc, char *argv[])
           throw std::invalid_argument("");
       } catch (...) {
         fprintf(stderr, "invalid number in option -i\n");
-        //free(opts->file); // TODO ne vzdy
-        //free(opts->netflow_collector);
+        delete opts;  // FIXME release_resources
         return 1;
       }
       printf("-i: %u\n", opts->inactive_timer);
       break;
     case 'm': //
-      try
-      {
+      try {
         if (std::stoi(optarg) >= 0)
           opts->count = std::stoi(optarg);
         else
           throw std::invalid_argument("");
-      }
-      catch (...)
-      {
+      } catch (...) {
         fprintf(stderr, "invalid number in command line options\n");
-        //free(opts->file); // TODO ne vzdy
-        //free(opts->netflow_collector);
+        delete opts;  // FIXME release_resources
         return 1;
       }
       printf("-m: %u\n", opts->count);
       break;
     default: // unknown command line option
       printf("error in command line options (see -h or --help for help)\n");
-      //free(opts->file); // TODO ne vzdy
-      //free(opts->netflow_collector);
+      delete opts;  // FIXME release_resources
       return 1;
     }
   }
+
   return 0; // successful
 }
 
@@ -210,14 +169,14 @@ void handle_signal(int signum) {
  * @param fp compiled filter
  * @param opts structure that stores command line options
  */
-void release_resources(options_t *opts) {
+void release_resources(Options *opts) {
   //pcap_close(pcap);           // global pcap handler
-  printf("Resoources released.\n");
+  printf("Resources released.\n");
   //pcap_freecode(&fp);         // compiled filter
   //free(opts->interface);  // options structure - interface string
   //delete opts.file;
   //delete opts->netflow_collector;
-  free(opts);             // options structure
+  delete opts;             // options structure
 }
 
 int main(int argc, char *argv[]) {
@@ -226,11 +185,14 @@ int main(int argc, char *argv[]) {
   //int link_layer_header_type; // number of link-layer header type
 
   // create opts structure for storing command line options
-  options_t *opts = (options_t *)malloc(sizeof(options_t));
+  //options_t *opts = (options_t *)malloc(sizeof(options_t));
+  Options *opts = new Options;
+  /*
   if (opts == nullptr) {
     fprintf(stderr, "malloc: allocation error\n");
     return 1;
   }
+  */
   // load command line options to the opts structure
   if ((res = load_opts(opts, argc, argv)) != 0) {
     // free allocated resources
@@ -260,7 +222,6 @@ int main(int argc, char *argv[]) {
   // main loop
 
   printf("main looooop...\n");
-
   /*
   pcap_t *pcap;
   pcap = pcap_open_offline(opts->file.c_str(), errbuf);
