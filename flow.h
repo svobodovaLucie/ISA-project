@@ -68,7 +68,7 @@ Bytes	Contents	Description
 21	engine_id	Slot number of the flow-switching engine
 22-23	sampling_interval	First two bits hold the sampling mode; remaining 14 bits hold value of sampling interval
 */
-typedef struct netflowhdr {
+struct Netflowhdr {
     u_int16_t version;
     u_int16_t count;
     u_int32_t sys_uptime;
@@ -78,7 +78,7 @@ typedef struct netflowhdr {
     u_int8_t engine_type;
     u_int8_t engine_id;
     u_int16_t sampling_interval;
-} netflow_hdr;
+};
 
 /*
 FLOW RECORD FORMAT
@@ -104,7 +104,7 @@ Bytes	Contents	Description
 45	dst_mask	Destination address prefix mask bits
 46-47	pad2	Unused (zero) bytes
 */
-typedef struct flowformat {
+struct Flowformat {
     u_int32_t srcaddr;
     u_int32_t dstaddr;
     u_int32_t nexthop;
@@ -125,8 +125,12 @@ typedef struct flowformat {
     u_int8_t src_mask;
     u_int8_t dst_mask;
     u_int16_t pad2;
-} flow_format;
+};
 
+struct NetFlowPacket {
+    Netflowhdr netflowhdr;
+    Flowformat flowformat;
+};
 
 
 #endif // ISA_PROJECT_H

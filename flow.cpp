@@ -21,6 +21,8 @@
 #include <netinet/tcp.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/udp.h>
+#include <err.h>
+#include <netdb.h>
 
 void print_help() {
   printf("Generator of NetFlow data from captured network traffic.\n"
@@ -610,6 +612,122 @@ int main(int argc, char *argv[]) {
 
 
   printf("Hnusne zlobive sietocky\n");
+
+  // -------------------------------------------------------------------------------------------
+  // create a netflow packet
+  /*
+  Netflowhdr netflowhdr;
+  netflowhdr.version = 5;
+  netflowhdr.count = 1;
+  netflowhdr.sys_uptime = 0;
+  netflowhdr.unix_sec = 0;
+  netflowhdr.unix_nsecs = 0;
+  netflowhdr.flow_sequence = 0;
+  netflowhdr.engine_type = 0;
+  netflowhdr.engine_id = 0;
+  netflowhdr.sampling_interval = 0;
+  
+  Flowformat flowformat;
+  flowformat.srcaddr = 0;
+  flowformat.dstaddr = 0;
+  flowformat.nexthop = 0;
+  flowformat.input = 0;
+  flowformat.output = 0;
+  flowformat.dPkts = 0;
+  flowformat.dOctets = 0;
+  flowformat.first = 0;
+  flowformat.last = 0;
+  flowformat.srcport = 0;
+  flowformat.dstport = 0;
+  flowformat.pad1 = 0;
+  flowformat.tcp_flags = 0;
+  flowformat.prot = 0;
+  flowformat.tos = 0;
+  flowformat.src_as = 0;
+  flowformat.dst_as = 0;
+  flowformat.src_mask = 0;
+  flowformat.dst_mask = 0;
+  flowformat.pad2 = 0;
+
+  NetFlowPacket netflowpacket;
+  netflowpacket.netflowhdr = netflowhdr;
+  netflowpacket.flowformat = flowformat;
+  */
+
+  // -------------------------------------------------------------------------------------------
+  // exporting
+  int sock;                        // socket descriptor
+  int msg_size, i;
+  struct sockaddr_in server, client;   // address structures of the server and the client
+  struct hostent *servent;         // network host entry required by gethostbyname()
+  socklen_t len, fromlen;        
+  char buffer[1024];            
+
+  //  Usage: ./flow <address> <port>
+
+  memset(&server,0,sizeof(server)); // erase the server structure
+  server.sin_family = AF_INET;                   
+
+  // make DNS resolution of the first parameter using gethostbyname()
+  if ((servent = gethostbyname(opts->netflow_collector.c_str())) == NULL) // check the first parameter
+    errx(1,"gethostbyname() failed\n");
+
+  // copy the first parameter to the server.sin_addr structure
+  memcpy(&server.sin_addr,servent->h_addr,servent->h_length); 
+
+  server.sin_port = htons(opts->port);        // server port (network byte order)
+   
+  if ((sock = socket(AF_INET , SOCK_DGRAM , 0)) == -1)   //create a client socket
+    err(1,"socket() failed\n");
+  
+  printf("* Server socket created\n");
+     
+  len = sizeof(server);
+  fromlen = sizeof(client);
+
+  printf("* Creating a connected UDP socket using connect()\n");                
+  // create a connected UDP socket
+  if (connect(sock, (struct sockaddr *)&server, sizeof(server))  == -1)
+    err(1, "connect() failed");
+
+  //send data to the server
+  while((msg_size=read(STDIN_FILENO,buffer,1024)) > 0) 
+      // read input data from STDIN (console) until end-of-line (Enter) is pressed
+      // when end-of-file (CTRL-D) is received, n == 0
+  { 
+    i = send(sock,buffer,msg_size,0);     // send data to the server
+    if (i == -1)                   // check if data was sent correctly
+      err(1,"send() failed");
+    else if (i != msg_size)
+      err(1,"send(): buffer written partially");
+
+    // obtain the local IP address and port using getsockname()
+    if (getsockname(sock,(struct sockaddr *) &client, &len) == -1)
+      err(1,"getsockname() failed");
+
+    printf("* Data sent from %s, port %d (%d) to %s, port %d (%d)\n",inet_ntoa(client.sin_addr), ntohs(client.sin_port), client.sin_port, inet_ntoa(server.sin_addr),ntohs(server.sin_port), server.sin_port);
+    
+    // read the answer from the server 
+    if ((i = recv(sock,buffer, 1024,0)) == -1)   
+      err(1,"recv() failed");
+    else if (i > 0){
+      // obtain the remote IP adddress and port from the server (cf. recfrom())
+      if (getpeername(sock, (struct sockaddr *)&client, &fromlen) != 0) 
+	err(1,"getpeername() failed\n");
+
+      printf("* UDP packet received from %s, port %d\n",inet_ntoa(client.sin_addr),ntohs(client.sin_port));
+      printf("%.*s",i,buffer);                   // print the answer
+    }
+  } 
+  // reading data until end-of-file (CTRL-D)
+
+  if (msg_size == -1)
+    err(1,"reading failed");
+  close(sock);
+  printf("* Closing the client socket ...\n");
+
+
+
 
   release_resources(opts, fp);
   return 0;
