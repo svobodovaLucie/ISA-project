@@ -456,58 +456,10 @@ void process_ipv6(struct pcap_pkthdr header, const u_char *packet) {
  * @param fp pointer to the compiled filter expression
  * @return true if successful, false if an error occurred
  */
-/*
-bool make_filter(options_t *opts, struct bpf_program *fp) {
-    // create a string for the filter
-    std::string filter;
-    unsigned len = 0;
-
-    // check if all command line options for protocols are disabled (tcp, udp, arp, icmp)
-    if (opts->arp == 0 && opts->icmp == 0 && opts->tcp == 0 && opts->udp == 0) {
-        // enable all of these protocols
-        opts->arp = 1;
-        opts->icmp = 1;
-        opts->tcp = 1;
-        opts->udp = 1;
-    }
-
-    // if port is enabled and TCP or UDP is not specified -> enable TCP and UDP
-    if (opts->port >= 0 && opts->tcp == 0 && opts->udp == 0) {
-        opts->tcp = 1;
-        opts->udp = 1;
-    }
-
-    // check what protocols are enabled and create a filter for them
-    if (opts->udp) {
-        filter.append("udp");
-        // add port option if enabled
-        if (opts->port >= 0)
-            filter.append(" port ").append(std::to_string(opts->port));
-        len++;
-    }
-    if (opts->tcp) {
-        if (len > 0)
-            filter.append(" or ");
-        // add port option if enabled
-        filter.append("tcp");
-        if (opts->port >= 0)
-            filter.append(" port ").append(std::to_string(opts->port));
-        len++;
-    }
-    if (opts->icmp) {
-        if (len > 0)
-            filter.append(" or ");
-        filter.append("icmp or icmp6");
-        len++;
-    }
-    if (opts->arp) {
-        if (len > 0)
-            filter.append(" or ");
-        filter.append("arp");
-    }
-
+bool make_filter(struct bpf_program *fp) {
     // compile and set the filter to pcap
-    if (pcap_compile(pcap, fp, filter.c_str(), 0, PCAP_NETMASK_UNKNOWN) == -1) {
+    // FIXME not sure about icmp6
+    if (pcap_compile(pcap, fp, "udp or tcp or icmp or icmp6", 0, PCAP_NETMASK_UNKNOWN) == -1) {
         fprintf(stderr, "pcap_compile: invalid filter string\n");
         return false;
     }
@@ -517,7 +469,7 @@ bool make_filter(options_t *opts, struct bpf_program *fp) {
     }
     return true;
 }
-*/
+
 /**
  * Callback function that is called by pcap_loop() if a packet is sniffed.
  * Function processes one frame. It prints RFC3339 timestamp, source MAC address,
@@ -585,6 +537,9 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
     else if (eth->ether_type == IPv6)
         process_ipv6(*header, packet);
     printf("\n");
+
+
+    printf("--------- ONE FRAME PROCESSED -----------\n");
 }
 
 
@@ -605,17 +560,15 @@ void handle_signal(int signum) {
 /**
  * Function releases all of the allocated resources.
  *
- * @param fp compiled filter
  * @param opts structure that stores command line options
+ * @param fp compiled filter
  */
-void release_resources(Options *opts) {
-  //pcap_close(pcap);           // global pcap handler
-  printf("Resources released.\n");
-  //pcap_freecode(&fp);         // compiled filter
-  //free(opts->interface);  // options structure - interface string
-  //delete opts.file;
-  //delete opts->netflow_collector;
+void release_resources(Options *opts, struct bpf_program fp) {
+  pcap_close(pcap);           // global pcap handler
+  pcap_freecode(&fp);         // compiled filter
   delete opts;             // options structure
+
+  printf("Resources released.\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -660,7 +613,6 @@ int main(int argc, char *argv[]) {
 
   // main loop
   // TODO ve snifferu jsem mela do {} while - kdybych nemela ETHERNET link layer
-  pcap_t *pcap;
   pcap = pcap_open_offline(opts->file.c_str(), errbuf);
   if (pcap == nullptr) {
     fprintf(stderr, "pcap_open_offline: %s", errbuf);
@@ -672,20 +624,19 @@ int main(int argc, char *argv[]) {
   // list of link types: https://www.tcpdump.org/linktypes.html
   link_layer_header_type = pcap_datalink(pcap);
   if (link_layer_header_type != DLT_EN10MB) {
-    release_resources(opts);
+    pcap_close(pcap);
+    delete opts;
     return 1;
   }
 
-  printf("pcap opened\n");
+  printf("pcap opened eyo\n");
 
   // create a filter
-  /*
   struct bpf_program fp;  // structure used for the compiled filter
-  if (!make_filter(opts, &fp)) {
-      release_resources(fp, opts);
-      return 1;
-  }
-  */
+    if (!make_filter(&fp)) {
+        release_resources(opts, fp);
+        return 1;
+    }
 
   // process opts->num packets -> print information about every packet
   if (pcap_loop(pcap, -1, process_frame, NULL) != 0) {
@@ -696,6 +647,6 @@ int main(int argc, char *argv[]) {
 
   printf("Hnusne zlobive sietocky\n");
 
-  release_resources(opts);
+  release_resources(opts, fp);
   return 0;
 }
