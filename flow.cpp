@@ -237,7 +237,7 @@ void print_frame(size_t length, const u_char *frame) {
  * @param packet frame data
  * @param header_length length of the IP header
  */
-void process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length) {
+FlowKey process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, FlowKey newFlow) {
     printf("protocol: UDP\n");
     // cast frame data to udphdr structure
     struct udphdr *udp = (struct udphdr *)(packet + header_length);
@@ -249,6 +249,11 @@ void process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int h
     printf("checksum: 0x%04x\n", ntohs(udp->check));
     // print frame data
     print_frame(header.caplen, packet);
+
+    std::get<4>(newFlow) = ntohs(udp->source);
+    std::get<5>(newFlow) = ntohs(udp->dest);
+
+    return newFlow;
 }
 
 /**
@@ -259,7 +264,7 @@ void process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int h
  * @param packet frame data
  * @param header_length length of the IP header
  */
-void process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length) {
+FlowKey process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, FlowKey newFlow) {
     printf("protocol: TCP\n");
     // cast frame data to tcphdr structure
     struct tcphdr *tcp = (struct tcphdr *)(packet + header_length);
@@ -269,8 +274,14 @@ void process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned int h
     printf("dst port: %u\n", ntohs(tcp->dest));
     // print checksum
     printf("checksum: 0x%04x\n", ntohs(tcp->check));
+
+    std::get<4>(newFlow) = ntohs(tcp->source);
+    std::get<5>(newFlow) = ntohs(tcp->dest);
+
     // print frame data
     print_frame(header.caplen, packet);
+
+    return newFlow;
 }
 
 /**
@@ -304,116 +315,47 @@ void process_icmp(struct pcap_pkthdr header, const u_char *packet, unsigned int 
  * @param header packet header
  * @param packet packet data
  */
-void process_ipv4(struct pcap_pkthdr header, const u_char *packet) {
+FlowKey process_ipv4(struct pcap_pkthdr header, const u_char *packet) {
     struct ip *ip = (struct ip*)(packet + ETH_HEADER_SIZE);       // IP header
     // check the IP header length and IP version number
     if (ip->ip_hl * 4 < 20 || ip->ip_v != 4) {
         printf("packet with invalid header catched\n");
         pcap_breakloop(pcap);
-        return;
+        // TODO return NULL;
+        exit(1);  // FIXME remove!!!
     }
+
+    // TADYJSEM
+    FlowKey newFlow = std::make_tuple(ip->ip_src, ip->ip_dst, ip->ip_p, ip->ip_tos, 0, 0);
+
+    /*
+    flows[std::make_tuple(0, 0, 0, 1, 0, 0)] = flowformat;
+  //auto itr = m.find(std::make_tuple(0,0,0,1,0,0));
+  if (flows.find(std::make_tuple(0,0,0,1,0,0)) != flows.end()) {
+    printf("found\n");
+  } else {
+    printf("not found\n");
+  }
+  */
+
     // print source and destination IP addresses
     printf("src IP: %s\n", inet_ntoa(ip->ip_src));
     printf("dst IP: %s\n", inet_ntoa(ip->ip_dst));
 
+    // print ToS
+    printf("tos: %d\n", ip->ip_tos);
+
     // check protocol type (TCP/UDP/ICMP) and print more information
     if (ip->ip_p == TCP)
-        process_tcp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4));
+        newFlow = process_tcp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), newFlow);
     else if (ip->ip_p == UDP)
-        process_udp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4));
+        newFlow = process_udp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), newFlow);
     else if (ip->ip_p == ICMPv4) {
         printf("protocol: ICMP\n");
         process_icmp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4));
     }
-}
 
-
-/**
- * Function processes IPv6 packet. It prints IP addresses, checks what the
- * next header number is and loops through the extension headers if present.
- * It calls appropriate functions to process the protocols (TCP, UCP, ICMPv6).
- * If an error occurs, it calls pcap_breakloop() function, which breaks
- * pcap_loop(), that is sniffing the packets.
- *
- * @param header packet header
- * @param packet frame data
- */
-void process_ipv6(struct pcap_pkthdr header, const u_char *packet) {
-    // create a structure from the packet string
-    struct ip6_hdr *ip6 = (struct ip6_hdr *)(packet + ETH_HEADER_SIZE);
-
-    // process IP addresses
-    char ip6address[INET6_ADDRSTRLEN] = "\0";   // stores the IP addresses in the right format
-    const char *ip6address_res;                 // stores the pointer returned from convert function
-
-    // get the src IP address
-    if ((ip6address_res = inet_ntop(AF_INET6, &(ip6->ip6_src), ip6address, INET6_ADDRSTRLEN)) == nullptr) {
-        fprintf(stderr, "inet_ntop: %s\n", strerror(errno));
-        pcap_breakloop(pcap);
-        return;
-    }
-    // print the src IP address
-    printf("src IP: %s\n", ip6address_res);
-
-    // get the dst IP address
-    if ((ip6address_res = inet_ntop(AF_INET6, &(ip6->ip6_dst), ip6address, INET6_ADDRSTRLEN)) == nullptr) {
-        fprintf(stderr, "inet_ntop: %s\n", strerror(errno));
-        pcap_breakloop(pcap);
-        return;
-    }
-    // print the dst IP address
-    printf("dst IP: %s\n", ip6address_res);
-
-    // get the position where the next header is located
-    size_t current_length = ETH_HEADER_SIZE + IPV6_HEADER_SIZE;
-
-    // print next header number
-    printf("next header: %d\n", ip6->ip6_ctlun.ip6_un1.ip6_un1_nxt);
-
-    // check if the next header is TCP/UDP/ICMPv6 and process it
-    if (ip6->ip6_ctlun.ip6_un1.ip6_un1_nxt == TCP) {
-        process_tcp(header, packet, current_length);
-        return;
-    } else if (ip6->ip6_ctlun.ip6_un1.ip6_un1_nxt == UDP) {
-        process_udp(header, packet, current_length);
-        return;
-    } else if (ip6->ip6_ctlun.ip6_un1.ip6_un1_nxt == ICMPv6) {
-        printf("protocol: ICMPv6\n");
-        process_icmp(header, packet, current_length);
-        return;
-    }
-
-    // the next header is some extension headers - create a structure for extension header
-    struct ip6_ext *ext = (struct ip6_ext *)(packet + current_length);
-
-    // loop to get through all the extension headers and try to find TCP/UDP/ICMPv6
-    while (current_length < header.caplen) {
-        if (ext->ip6e_nxt == TCP) {
-            process_tcp(header, packet, current_length);
-            return;
-        }else if (ext->ip6e_nxt == UDP) {
-            process_udp(header, packet, current_length);
-            return;
-        } else if (ext->ip6e_nxt == ICMPv6) {
-            process_icmp(header, packet, current_length);
-            return;
-        }
-
-        // add current extension header's length to the current length
-        current_length += ext->ip6e_len;
-
-        // there is another extension header
-        // load the next extension header to the ext structure
-        ext = (struct ip6_ext *)(packet + current_length);
-
-        // print next header number
-        printf("next header: %d\n", ext->ip6e_nxt);
-
-        // if the extension header's next header is NO_NEXT_HEADER break the loop
-        if (ext->ip6e_nxt == NO_NEXT_HEADER || ext->ip6e_len == 0) {
-            break;
-        }
-    }
+    return newFlow;
 }
 
 /**
@@ -436,6 +378,22 @@ bool make_filter(struct bpf_program *fp) {
         return false;
     }
     return true;
+}
+
+void printf_flows() {
+  std::cout << "flows:\n" << "=============" << std::endl;
+  for (auto& keyValue : flows) {
+    auto &key = keyValue.first;
+    //Flowformat& value = kv.second;
+    std::cout << "src IP  : " << inet_ntoa(std::get<0>(key)) << ", ";    // src IP
+    std::cout << "dst IP  : " << inet_ntoa(std::get<1>(key)) << ", " << std::endl;    // dst IP
+    std::cout << "proto   : " <<std::get<2>(key) << ", ";               // proto
+    std::cout << "tos     : " <<std::get<3>(key) << ", " << std::endl;               // tos
+    std::cout << "src port: " <<std::get<4>(key) << ", ";               // src port
+    std::cout << "dst port: " <<std::get<5>(key) << std::endl;               // dst port
+    std::cout << "-------------" << std::endl;
+  }
+  std::cout << "=============" << std::endl;
 }
 
 /**
@@ -495,15 +453,59 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
     // print frame length
     printf("frame length: %d\n", header->caplen);
 
+    FlowKey capturedFlow;
+
     // get etherType
     eth->ether_type = ntohs(eth->ether_type);
     // process and print the packet
     if (eth->ether_type == IPv4)
-        process_ipv4(*header, packet);
+        capturedFlow = process_ipv4(*header, packet);
     else if (eth->ether_type == IPv6)
-        process_ipv6(*header, packet);
+    //    process_ipv6(*header, packet);
+        return;
     printf("\n");
 
+    // got the newFlow
+
+    // iterate through the flows and print them... just for the debugging 
+    // TODO remove
+    printf_flows();
+
+    // find in the FlowMap
+    if (flows.find(capturedFlow) != flows.end()) {
+      // if exists then update the record
+      printf("found\n");
+    } else {
+      // if doesn't then create new record
+      //flows.insert(capturedFlow);
+      Flowformat flowformat;
+      flowformat.srcaddr = std::get<0>(capturedFlow).s_addr;
+      flowformat.dstaddr = std::get<1>(capturedFlow).s_addr;
+      flowformat.nexthop = 0;
+      flowformat.input = 0;
+      flowformat.output = 0;
+      flowformat.dPkts = 0;
+      flowformat.dOctets = 0;
+      flowformat.first = 0;
+      flowformat.last = 0;
+      flowformat.srcport = std::get<4>(capturedFlow);
+      flowformat.dstport = std::get<5>(capturedFlow);
+      flowformat.pad1 = 0;
+      flowformat.tcp_flags = 0;
+      flowformat.prot = std::get<2>(capturedFlow);
+      flowformat.tos = std::get<3>(capturedFlow);
+      flowformat.src_as = 0;
+      flowformat.dst_as = 0;
+      flowformat.src_mask = 0;
+      flowformat.dst_mask = 0;
+      flowformat.pad2 = 0;
+      // insert the flow
+      flows[capturedFlow] = flowformat;
+      printf("not found - inserted\n");
+    }
+    // if exists then update the record
+    // if doesn't then create new record
+    // timers, cache...
 
     printf("--------- ONE FRAME PROCESSED -----------\n");
 }
@@ -530,6 +532,7 @@ void handle_signal(int signum) {
  * @param fp compiled filter
  */
 void release_resources(Options *opts, struct bpf_program fp) {
+  printf("Releasing...\n");
   pcap_close(pcap);           // global pcap handler
   pcap_freecode(&fp);         // compiled filter
   delete opts;             // options structure
@@ -568,6 +571,60 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  /*
+  Flowformat flowformat;
+  flowformat.srcaddr = 0;
+  flowformat.dstaddr = 0;
+  flowformat.nexthop = 0;
+  flowformat.input = 0;
+  flowformat.output = 0;
+  flowformat.dPkts = 0;
+  flowformat.dOctets = 0;
+  flowformat.first = 0;
+  flowformat.last = 0;
+  flowformat.srcport = 0;
+  flowformat.dstport = 0;
+  flowformat.pad1 = 0;
+  flowformat.tcp_flags = 0;
+  flowformat.prot = 0;
+  flowformat.tos = 0;
+  flowformat.src_as = 0;
+  flowformat.dst_as = 0;
+  flowformat.src_mask = 0;
+  flowformat.dst_mask = 0;
+  flowformat.pad2 = 0;
+  */
+
+  // map: https://www.youtube.com/watch?v=KiB0vRi2wlc&ab_channel=TheCherno
+  //FlowsMap flows;
+  /*
+  flows[std::make_tuple(0, 0, 0, 1, 0, 0)] = flowformat;
+  //auto itr = m.find(std::make_tuple(0,0,0,1,0,0));
+  if (flows.find(std::make_tuple(0,0,0,1,0,0)) != flows.end()) {
+    printf("found\n");
+  } else {
+    printf("not found\n");
+  }
+  if (flows.find(std::make_tuple(0,0,0,0,2,0)) != flows.end()) {
+    printf("found 2\n");
+  } else {
+    printf("not found 2\n");
+  }
+  */
+
+  /*
+  for (auto& kv : m) {
+    auto &k = kv.first;
+    Flowformat& v = kv.second;
+
+    std::cout << k << v << std::endl;
+  }
+  */
+
+ // delete member
+ // m.erase(std::make_tuple(0,0,0,1,0,0))
+
+
   printf("command line arguments done\n");
 
   // create SIGINT handler
@@ -579,7 +636,9 @@ int main(int argc, char *argv[]) {
 
   // main loop
   // TODO ve snifferu jsem mela do {} while - kdybych nemela ETHERNET link layer
+  // FIXME segfault when pressing ctrl+c while loading stdin
   pcap = pcap_open_offline(opts->file.c_str(), errbuf);
+
   if (pcap == nullptr) {
     fprintf(stderr, "pcap_open_offline: %s", errbuf);
     delete opts;
@@ -594,8 +653,6 @@ int main(int argc, char *argv[]) {
     delete opts;
     return 1;
   }
-
-  printf("pcap opened eyo\n");
 
   // create a filter
   struct bpf_program fp;  // structure used for the compiled filter
@@ -626,6 +683,7 @@ int main(int argc, char *argv[]) {
   netflowhdr.engine_id = 0;
   netflowhdr.sampling_interval = 0;
   
+  /*
   Flowformat flowformat;
   flowformat.srcaddr = 0;
   flowformat.dstaddr = 0;
@@ -647,10 +705,12 @@ int main(int argc, char *argv[]) {
   flowformat.src_mask = 0;
   flowformat.dst_mask = 0;
   flowformat.pad2 = 0;
+  */
 
-  NetFlowPacket *netflowpacket = new NetFlowPacket;
-  netflowpacket->netflowhdr = netflowhdr;
-  netflowpacket->flowformat = flowformat;
+
+
+  // delete member
+  // m.erase(std::make_tuple(0,0,0,1,0,0))
 
   // -------------------------------------------------------------------------------------------
   // exporting
@@ -659,8 +719,8 @@ int main(int argc, char *argv[]) {
   int i;
   struct sockaddr_in server, client;   // address structures of the server and the client
   struct hostent *servent;         // network host entry required by gethostbyname()
-  socklen_t len, fromlen;        
-  char buffer[1024];            
+  socklen_t len;        
+  //char buffer[1024];            
 
   //  Usage: ./flow <address> <port>
 
@@ -682,7 +742,7 @@ int main(int argc, char *argv[]) {
   printf("* Server socket created\n");
      
   len = sizeof(server);
-  fromlen = sizeof(client);
+  //fromlen = sizeof(client);
 
   printf("* Creating a connected UDP socket using connect()\n");                
   // create a connected UDP socket
@@ -694,6 +754,19 @@ int main(int argc, char *argv[]) {
       // read input data from STDIN (console) until end-of-line (Enter) is pressed
       // when end-of-file (CTRL-D) is received, n == 0
   //{ 
+
+    // iterate through the flows and export each one // TODO export all in one packet
+    NetFlowPacket *netflowpacket = new NetFlowPacket;
+    for (auto& kv : flows) {
+      Flowformat& v = kv.second;
+
+      netflowpacket->netflowhdr = netflowhdr;
+      netflowpacket->flowformat = v;
+
+      // delete member
+      // flows.erase(capturedFlow))
+    
+  
     i = send(sock,netflowpacket,msg_size,0);     // send data to the server
     if (i == -1)                   // check if data was sent correctly
       err(1,"send() failed");
@@ -705,7 +778,11 @@ int main(int argc, char *argv[]) {
       err(1,"getsockname() failed");
 
     printf("* Data sent from %s, port %d (%d) to %s, port %d (%d)\n",inet_ntoa(client.sin_addr), ntohs(client.sin_port), client.sin_port, inet_ntoa(server.sin_addr),ntohs(server.sin_port), server.sin_port);
-    
+    // FIXME the part below is not used probably - it's the response from server
+    // close the socket after the last flow
+    }
+
+    /*
     // read the answer from the server 
     if ((i = recv(sock,buffer, 1024,0)) == -1)   
       err(1,"recv() failed");
@@ -717,6 +794,7 @@ int main(int argc, char *argv[]) {
       printf("* UDP packet received from %s, port %d\n",inet_ntoa(client.sin_addr),ntohs(client.sin_port));
       printf("%.*s",i,buffer);                   // print the answer
     }
+    */
   //} 
   // reading data until end-of-file (CTRL-D)
 
