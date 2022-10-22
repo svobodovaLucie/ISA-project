@@ -160,9 +160,6 @@ int load_opts(Options *opts, int argc, char *argv[])
   return 0; // successful
 }
 
-
-
-
 /**
  * Function prints the formatted frame data to the standard output.
  * Format of one line:
@@ -355,6 +352,9 @@ FlowKey process_ipv4(struct pcap_pkthdr header, const u_char *packet) {
         process_icmp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4));
     }
 
+    //flows[newFlow].tos = ip->ip_tos;
+    //flows[newFlow].dOctets
+
     return newFlow;
 }
 
@@ -467,45 +467,163 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
 
     // got the newFlow
 
+    // -------------------- flows ----------------------
+
     // iterate through the flows and print them... just for the debugging 
     // TODO remove
     printf_flows();
+
+    // active and inactive timers check
+    //FlowKey *toRemove = nullptr;
+    //for (auto& key_value : flows) {
+      /*
+      if (toRemove != nullptr) {
+        printf("inside\n");
+        flows.erase(*toRemove);
+        // please no Segfault
+      }
+      */
+     printf("1\n");
+    auto key_value = flows.begin();
+    while (key_value != flows.end()) {
+      printf("2\n");
+      Flowformat& flow = key_value->second;
+      // active and inactive timer check + export
+      if (htonl(header->ts.tv_sec) /* current time */ - flow.first > opts->active_timer /* TODO check seconds and type */
+          || htonl(header->ts.tv_sec) /* current time */ - flow.last > opts->inactive_timer) {
+        printf("3\n");
+        // export flow
+        // create a netflow packet to send
+        NetFlowPacket *netflowpacket = new NetFlowPacket;
+        // create netflow header
+        Netflowhdr netflowhdr;
+        netflowhdr.version = htons(5);        // yes
+        netflowhdr.count = htons(1);          // yes
+        netflowhdr.sys_uptime = 0;            // ?
+        netflowhdr.unix_sec = 0;              // yes
+        netflowhdr.unix_nsecs = 0;            // yes
+        netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
+        netflowhdr.engine_type = 0;           // ?
+        netflowhdr.engine_id = 0;             // ?
+        netflowhdr.sampling_interval = 0;     // ?
+        // add the flowrecord data to the packet
+        netflowpacket->netflowhdr = netflowhdr;
+        netflowpacket->flowformat = flow;
+        // send the flow
+        int msg_size = 100; // FIXME how many
+        int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
+        if (i == -1)                   // check if data was sent correctly
+          err(1,"send() failed");
+        else if (i != msg_size)
+          err(1,"send(): buffer written partially");
+        else
+          printf("msg sent successfully\n");
+        
+        // remove flow from flows
+        printf("dddd\n");
+        key_value = flows.erase(key_value);
+        printf("5\n");
+        //toRemove = key_value.first;
+      } else {
+        key_value++;
+      }
+      printf("234\n");
+      
+
+    }
+    printf("aaaa\n");
+
+    // cache size (count) check + export
+    printf("m-----------------%d and flows size: %ld\n", opts->count, flows.size());
+    if (flows.size() >= opts->count) {
+      // min - nejstarsi zaznam v cachi - tzn. s nejmensim first nebo last casem?
+      u_int32_t min = 765746355; // FIXME: use now(); nebo nejaky random packet, aby bylo jiste, ze se bude moct vymazat
+
+      // packet with the minimal value -> the one to be removed
+      FlowKey toRemove;
+
+      for (auto& key_value : flows) {
+        if (key_value.second.first < min) {
+          min = key_value.second.first;
+          toRemove = key_value.first;
+        }
+      }
+      // export the flow
+      // create a netflow packet to send
+        NetFlowPacket *netflowpacket = new NetFlowPacket;
+        // create netflow header
+        Netflowhdr netflowhdr;
+        netflowhdr.version = htons(5);        // yes
+        netflowhdr.count = htons(1);          // yes
+        netflowhdr.sys_uptime = 0;            // ?
+        netflowhdr.unix_sec = 0;              // yes
+        netflowhdr.unix_nsecs = 0;            // yes
+        netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
+        netflowhdr.engine_type = 0;           // ?
+        netflowhdr.engine_id = 0;             // ?
+        netflowhdr.sampling_interval = 0;     // ?
+        // add the flowrecord data to the packet
+        netflowpacket->netflowhdr = netflowhdr;
+        netflowpacket->flowformat = flows[toRemove];
+        // send the flow
+        int msg_size = 100; // FIXME how many
+        int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
+        if (i == -1)                   // check if data was sent correctly
+          err(1,"send() failed");
+        else if (i != msg_size)
+          err(1,"send(): buffer written partially");
+        else
+          printf("msg sent successfully\n");
+
+      // erase it
+      flows.erase(toRemove);
+    }
+
+    // insert new flow
+
+
 
     // find in the FlowMap
     if (flows.find(capturedFlow) != flows.end()) {
       // if exists then update the record
       printf("found\n");
+      flows[capturedFlow].last = htonl(header->ts.tv_sec);  // FIXME wrong date
     } else {
+      printf("bbbb\n");
       // if doesn't then create new record
       //flows.insert(capturedFlow);
       Flowformat flowformat;
-      flowformat.srcaddr = std::get<0>(capturedFlow).s_addr;
-      flowformat.dstaddr = std::get<1>(capturedFlow).s_addr;
-      flowformat.nexthop = 0;
-      flowformat.input = 0;
-      flowformat.output = 0;
-      flowformat.dPkts = 0;
-      flowformat.dOctets = 0;
-      flowformat.first = 0;
-      flowformat.last = 0;
-      flowformat.srcport = htons(std::get<4>(capturedFlow));
-      flowformat.dstport = htons(std::get<5>(capturedFlow));
-      flowformat.pad1 = 0;
-      flowformat.tcp_flags = 0;
-      flowformat.prot = std::get<2>(capturedFlow);
-      flowformat.tos = std::get<3>(capturedFlow);
-      flowformat.src_as = 0;
-      flowformat.dst_as = 0;
-      flowformat.src_mask = 0;
-      flowformat.dst_mask = 0;
-      flowformat.pad2 = 0;
+      flowformat.srcaddr = std::get<0>(capturedFlow).s_addr;  // yes
+      flowformat.dstaddr = std::get<1>(capturedFlow).s_addr;  // yes
+      flowformat.nexthop = 0;                                 // no OK
+      flowformat.input = 0;                                   // no
+      flowformat.output = 0;                                  // no
+      flowformat.dPkts = htonl(1);                            // yes - one packet currently
+      flowformat.dOctets = 0;                                 // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
+      flowformat.first = htonl(header->ts.tv_sec);            // yes - SysUptime at start of flow -> time in the first packet of the flow hopefully? FIXME
+      flowformat.last = htonl(header->ts.tv_sec);             // yes - same as .first -> if this the only packet I think this is right
+      flowformat.srcport = htons(std::get<4>(capturedFlow));  // yes
+      flowformat.dstport = htons(std::get<5>(capturedFlow));  // yes
+      flowformat.pad1 = 0;                                    // no OK
+      flowformat.tcp_flags = 0;                               // yes - cumulative OR
+      flowformat.prot = std::get<2>(capturedFlow);            // yes
+      flowformat.tos = std::get<3>(capturedFlow);             // yes
+      flowformat.src_as = 0;                                  // no OK
+      flowformat.dst_as = 0;                                  // no OK
+      flowformat.src_mask = 32;                               // yes - 32?
+      flowformat.dst_mask = 32;                               // yes - 32?
+      flowformat.pad2 = 0;                                    // no OK
       // insert the flow
       flows[capturedFlow] = flowformat;
       printf("not found - inserted\n");
     }
+    printf("ccccc\n");
     // if exists then update the record
     // if doesn't then create new record
     // timers, cache...
+
+    // only pri exportu
+      
 
     printf("--------- ONE FRAME PROCESSED -----------\n");
 }
@@ -547,7 +665,8 @@ int main(int argc, char *argv[]) {
 
   // create opts structure for storing command line options
   //options_t *opts = (options_t *)malloc(sizeof(options_t));
-  Options *opts = new Options;
+  //Options *
+  opts = new Options;
   /*
   if (opts == nullptr) {
     fprintf(stderr, "malloc: allocation error\n");
@@ -570,30 +689,6 @@ int main(int argc, char *argv[]) {
     // error occurred - return 1
     return 1;
   }
-
-  /*
-  Flowformat flowformat;
-  flowformat.srcaddr = 0;
-  flowformat.dstaddr = 0;
-  flowformat.nexthop = 0;
-  flowformat.input = 0;
-  flowformat.output = 0;
-  flowformat.dPkts = 0;
-  flowformat.dOctets = 0;
-  flowformat.first = 0;
-  flowformat.last = 0;
-  flowformat.srcport = 0;
-  flowformat.dstport = 0;
-  flowformat.pad1 = 0;
-  flowformat.tcp_flags = 0;
-  flowformat.prot = 0;
-  flowformat.tos = 0;
-  flowformat.src_as = 0;
-  flowformat.dst_as = 0;
-  flowformat.src_mask = 0;
-  flowformat.dst_mask = 0;
-  flowformat.pad2 = 0;
-  */
 
   // map: https://www.youtube.com/watch?v=KiB0vRi2wlc&ab_channel=TheCherno
   //FlowsMap flows;
@@ -644,11 +739,11 @@ int main(int argc, char *argv[]) {
     delete opts;
     return 1;
   }
-
   // get the link-layer header type
   // list of link types: https://www.tcpdump.org/linktypes.html
   link_layer_header_type = pcap_datalink(pcap);
   if (link_layer_header_type != DLT_EN10MB) {
+    printf("link_layer_header err: %d\n", link_layer_header_type);
     pcap_close(pcap);
     delete opts;
     return 1;
@@ -661,11 +756,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-  // process opts->num packets -> print information about every packet
-  if (pcap_loop(pcap, -1, process_frame, NULL) != 0) {
-      // fewer packets were processed
-      fprintf(stderr, "pcap_loop: %s\n", strerror(errno));
-  }
+ 
 
 
   printf("Hnusne zlobive sietocky\n");
@@ -673,48 +764,22 @@ int main(int argc, char *argv[]) {
   // -------------------------------------------------------------------------------------------
   // create a netflow packet
   Netflowhdr netflowhdr;
-  netflowhdr.version = htons(5);
-  netflowhdr.count = htons(1);
-  netflowhdr.sys_uptime = 0;
-  netflowhdr.unix_sec = 0;
-  netflowhdr.unix_nsecs = 0;
-  netflowhdr.flow_sequence = 0;
-  netflowhdr.engine_type = 0;
-  netflowhdr.engine_id = 0;
-  netflowhdr.sampling_interval = 0;
+  netflowhdr.version = htons(5);        // yes
+  netflowhdr.count = htons(1);          // yes
+  netflowhdr.sys_uptime = 0;            // ?
+  netflowhdr.unix_sec = 0;              // yes
+  netflowhdr.unix_nsecs = 0;            // yes
+  netflowhdr.flow_sequence = 0;         // yes - cislo flow, inkrementace pri generovani flows
+  netflowhdr.engine_type = 0;           // ?
+  netflowhdr.engine_id = 0;             // ?
+  netflowhdr.sampling_interval = 0;     // ?
   
-  /*
-  Flowformat flowformat;
-  flowformat.srcaddr = 0;
-  flowformat.dstaddr = 0;
-  flowformat.nexthop = 0;
-  flowformat.input = 0;
-  flowformat.output = 0;
-  flowformat.dPkts = 0;
-  flowformat.dOctets = 0;
-  flowformat.first = 0;
-  flowformat.last = 0;
-  flowformat.srcport = 0;
-  flowformat.dstport = 0;
-  flowformat.pad1 = 0;
-  flowformat.tcp_flags = 0;
-  flowformat.prot = 0;
-  flowformat.tos = 0;
-  flowformat.src_as = 0;
-  flowformat.dst_as = 0;
-  flowformat.src_mask = 0;
-  flowformat.dst_mask = 0;
-  flowformat.pad2 = 0;
-  */
-
-
-
   // delete member
   // m.erase(std::make_tuple(0,0,0,1,0,0))
 
   // -------------------------------------------------------------------------------------------
   // exporting
-  int sock;                        // socket descriptor
+  //int sock;                        // socket descriptor
   int msg_size = 100;
   int i;
   struct sockaddr_in server, client;   // address structures of the server and the client
@@ -749,6 +814,11 @@ int main(int argc, char *argv[]) {
   if (connect(sock, (struct sockaddr *)&server, sizeof(server))  == -1)
     err(1, "connect() failed");
 
+ // process opts->num packets -> print information about every packet
+  if (pcap_loop(pcap, -1, process_frame, NULL) != 0) {
+      // fewer packets were processed
+      fprintf(stderr, "pcap_loop: %s\n", strerror(errno));
+  }
   //send data to the server
   //while((msg_size=read(STDIN_FILENO,buffer,1024)) > 0) 
       // read input data from STDIN (console) until end-of-line (Enter) is pressed
@@ -756,6 +826,7 @@ int main(int argc, char *argv[]) {
   //{ 
 
     // iterate through the flows and export each one // TODO export all in one packet
+    // the packets that are left after processing all of the packets in pcap file
     NetFlowPacket *netflowpacket = new NetFlowPacket;
     for (auto& kv : flows) {
       Flowformat& v = kv.second;

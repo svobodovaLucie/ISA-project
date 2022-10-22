@@ -33,6 +33,9 @@
 char errbuf[PCAP_ERRBUF_SIZE];   // buffer used for storing error strings from pcap functions
 int sigint_received;             // variable that indicates if a SIGINT signal was received
 pcap_t *pcap;                    // pcap handler
+u_int32_t flow_seq = 0;          // flow sequence
+// Options *opts;
+int sock;                        // socket descriptor
 
 /**
  * Enumeration used for ether types.
@@ -59,6 +62,8 @@ struct Options {
     unsigned inactive_timer = 10;          // inactive interval
     unsigned count = 1024;                   // flow-cache size
 };
+
+Options *opts;                   // command line options
 
 // NetFlow protocol struct
 /*
