@@ -11,6 +11,8 @@
 #ifndef ISA_PROJECT_H
 #define ISA_PROJECT_H
 
+#define __FAVOR_BSD
+
 #include <string>
 #include <pcap.h>
 #include <tuple>

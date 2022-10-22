@@ -270,13 +270,13 @@ FlowKey process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned in
     struct tcphdr *tcp = (struct tcphdr *)(packet + header_length);
 
     // print source and destination ports
-    printf("src port: %u\n", ntohs(tcp->source));
-    printf("dst port: %u\n", ntohs(tcp->dest));
+    printf("src port: %u\n", ntohs(tcp->th_sport));
+    printf("dst port: %u\n", ntohs(tcp->th_dport));
     // print checksum
-    printf("checksum: 0x%04x\n", ntohs(tcp->check));
+    printf("checksum: 0x%04x\n", ntohs(tcp->th_sum));
 
-    std::get<4>(newFlow) = ntohs(tcp->source);
-    std::get<5>(newFlow) = ntohs(tcp->dest);
+    std::get<4>(newFlow) = ntohs(tcp->th_sport);
+    std::get<5>(newFlow) = ntohs(tcp->th_dport);
 
     // print frame data
     print_frame(header.caplen, packet);
