@@ -488,8 +488,8 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
       flowformat.dOctets = 0;
       flowformat.first = 0;
       flowformat.last = 0;
-      flowformat.srcport = std::get<4>(capturedFlow);
-      flowformat.dstport = std::get<5>(capturedFlow);
+      flowformat.srcport = htons(std::get<4>(capturedFlow));
+      flowformat.dstport = htons(std::get<5>(capturedFlow));
       flowformat.pad1 = 0;
       flowformat.tcp_flags = 0;
       flowformat.prot = std::get<2>(capturedFlow);
@@ -673,8 +673,8 @@ int main(int argc, char *argv[]) {
   // -------------------------------------------------------------------------------------------
   // create a netflow packet
   Netflowhdr netflowhdr;
-  netflowhdr.version = 5;
-  netflowhdr.count = 1;
+  netflowhdr.version = htons(5);
+  netflowhdr.count = htons(1);
   netflowhdr.sys_uptime = 0;
   netflowhdr.unix_sec = 0;
   netflowhdr.unix_nsecs = 0;
