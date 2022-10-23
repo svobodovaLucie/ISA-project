@@ -226,167 +226,14 @@ void print_frame(size_t length, const u_char *frame) {
     printf("\n");
 }
 
-/**
- * Function prints more information about UDP packet. It prints source
- * and destination ports, checksum and the frame data;
- *
- * @param header packet header
- * @param packet frame data
- * @param header_length length of the IP header
- */
-FlowKey process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, FlowKey newFlow) {
-    printf("protocol: UDP\n");
-    // cast frame data to udphdr structure
-    struct udphdr *udp = (struct udphdr *)(packet + header_length);
-
-    // print source and destination ports
-    printf("src port: %u\n", ntohs(udp->source));
-    printf("dst port: %u\n", ntohs(udp->dest));
-    // print checksum
-    printf("checksum: 0x%04x\n", ntohs(udp->check));
-    // print frame data
-    print_frame(header.caplen, packet);
-
-    std::get<4>(newFlow) = ntohs(udp->source);
-    std::get<5>(newFlow) = ntohs(udp->dest);
-
-    return newFlow;
-}
-
-/**
- * Function prints more information about TCP packet. It prints source
- * and destination ports, checksum and frame data.
- *
- * @param header packet header
- * @param packet frame data
- * @param header_length length of the IP header
- */
-FlowKey process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, FlowKey newFlow) {
-    printf("protocol: TCP\n");
-    // cast frame data to tcphdr structure
-    struct tcphdr *tcp = (struct tcphdr *)(packet + header_length);
-
-    // print source and destination ports
-    printf("src port: %u\n", ntohs(tcp->th_sport));
-    printf("dst port: %u\n", ntohs(tcp->th_dport));
-    // print checksum
-    printf("checksum: 0x%04x\n", ntohs(tcp->th_sum));
-
-    std::get<4>(newFlow) = ntohs(tcp->th_sport);
-    std::get<5>(newFlow) = ntohs(tcp->th_dport);
-
-    // print frame data
-    print_frame(header.caplen, packet);
-
-    return newFlow;
-}
-
-/**
- * Function prints more information about ICMP packet - type, code, checksum
- * and the frame data.
- *
- * @param header packet header
- * @param packet frame data
- * @param header_length length of the IP header
- */
-void process_icmp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length) {
-    // cast to icmphdr structure
-    struct icmphdr *icmp = (struct icmphdr *)(packet + header_length);
-
-    // print type, code, checksum and frame data
-    if (icmp->type == 0)
-        printf("type: 0 (Echo reply)\n");
-    else if (icmp->type == 8)
-        printf("type: 8 (Echo request)\n");
-    else
-        printf("type: %d\n", icmp->type);
-    printf("code: %d\n", icmp->code);
-    printf("checksum: 0x%04x\n", ntohs(icmp->checksum));
-    print_frame(header.caplen, packet);
-}
-
-/**
- * Function processes IPv4 packet. It checks the header length and IP version,
- * prints IP addresses and call appropriate function to print more information.
- *
- * @param header packet header
- * @param packet packet data
- */
-FlowKey process_ipv4(struct pcap_pkthdr header, const u_char *packet) {
-    struct ip *ip = (struct ip*)(packet + ETH_HEADER_SIZE);       // IP header
-    // check the IP header length and IP version number
-    if (ip->ip_hl * 4 < 20 || ip->ip_v != 4) {
-        printf("packet with invalid header catched\n");
-        pcap_breakloop(pcap);
-        // TODO return NULL;
-        exit(1);  // FIXME remove!!!
-    }
-
-    // TADYJSEM
-    FlowKey newFlow = std::make_tuple(ip->ip_src, ip->ip_dst, ip->ip_p, ip->ip_tos, 0, 0);
-
-    /*
-    flows[std::make_tuple(0, 0, 0, 1, 0, 0)] = flowformat;
-  //auto itr = m.find(std::make_tuple(0,0,0,1,0,0));
-  if (flows.find(std::make_tuple(0,0,0,1,0,0)) != flows.end()) {
-    printf("found\n");
-  } else {
-    printf("not found\n");
-  }
-  */
-
-    // print source and destination IP addresses
-    printf("src IP: %s\n", inet_ntoa(ip->ip_src));
-    printf("dst IP: %s\n", inet_ntoa(ip->ip_dst));
-
-    // print ToS
-    printf("tos: %d\n", ip->ip_tos);
-
-    // check protocol type (TCP/UDP/ICMP) and print more information
-    if (ip->ip_p == TCP)
-        newFlow = process_tcp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), newFlow);
-    else if (ip->ip_p == UDP)
-        newFlow = process_udp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), newFlow);
-    else if (ip->ip_p == ICMPv4) {
-        printf("protocol: ICMP\n");
-        process_icmp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4));
-    }
-
-    //flows[newFlow].tos = ip->ip_tos;
-    //flows[newFlow].dOctets
-
-    return newFlow;
-}
-
-/**
- * Function creates a filter for filtering the packets. How the filter is created
- * depends on command line arguments (stored in opts structure).
- *
- * @param opts structure that stores command line options
- * @param fp pointer to the compiled filter expression
- * @return true if successful, false if an error occurred
- */
-bool make_filter(struct bpf_program *fp) {
-    // compile and set the filter to pcap
-    // FIXME not sure about icmp6
-    if (pcap_compile(pcap, fp, "udp or tcp or icmp or icmp6", 0, PCAP_NETMASK_UNKNOWN) == -1) {
-        fprintf(stderr, "pcap_compile: invalid filter string\n");
-        return false;
-    }
-    if (pcap_setfilter(pcap, fp) == -1) {
-        fprintf(stderr, "pcap_setfilter: Error.\n");
-        return false;
-    }
-    return true;
-}
 
 void printf_flows() {
   std::cout << "flows:\n" << "=============" << std::endl;
   for (auto& keyValue : flows) {
     auto &key = keyValue.first;
     //Flowformat& value = kv.second;
-    std::cout << "src IP  : " << inet_ntoa(std::get<0>(key)) << ", ";    // src IP
-    std::cout << "dst IP  : " << inet_ntoa(std::get<1>(key)) << ", " << std::endl;    // dst IP
+    //std::cout << "src IP  : " << inet_ntoa(std::get<0>(key)) << ", ";    // src IP
+    //std::cout << "dst IP  : " << inet_ntoa(std::get<1>(key)) << ", " << std::endl;    // dst IP
     std::cout << "proto   : " <<std::get<2>(key) << ", ";               // proto
     std::cout << "tos     : " <<std::get<3>(key) << ", " << std::endl;               // tos
     std::cout << "src port: " <<std::get<4>(key) << ", ";               // src port
@@ -396,74 +243,46 @@ void printf_flows() {
   std::cout << "=============" << std::endl;
 }
 
+int export_flow(Flowformat flow_to_export) {
+// export flow
+        // create a netflow packet to send
+        NetFlowPacket *netflowpacket = new NetFlowPacket;
+        // create netflow header
+        Netflowhdr netflowhdr;
+        netflowhdr.version = htons(5);        // yes
+        netflowhdr.count = htons(1);          // yes
+        netflowhdr.sys_uptime = 0;            // ?
+        netflowhdr.unix_sec = 0;              // yes
+        netflowhdr.unix_nsecs = 0;            // yes
+        netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
+        netflowhdr.engine_type = 0;           // ?
+        netflowhdr.engine_id = 0;             // ?
+        netflowhdr.sampling_interval = 0;     // ?
+        // add the flowrecord data to the packet
+        netflowpacket->netflowhdr = netflowhdr;
+        // TODO maybe Segfault
+        netflowpacket->flowformat = flow_to_export;    // do I have to memcpy or sth like that?
+        // send the flow
+        int msg_size = 100; // FIXME how many
+        int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
+        if (i == -1)                   // check if data was sent correctly
+          err(1,"send() failed");
+        else if (i != msg_size)
+          err(1,"send(): buffer written partially");
+        else
+          printf("msg sent successfully\n");
+
+      return 0; // success ir return flow or sth
+}
+
 /**
- * Callback function that is called by pcap_loop() if a packet is sniffed.
- * Function processes one frame. It prints RFC3339 timestamp, source MAC address,
- * destination MAC address and frame length. By the EtherType is decided what
- * protocol should be processed and appropriate function is called to print
- * more information about the packet.
- *
- * @param args mandatory argument of the callback function, not used in this function
- * @param header packet header structure
- * @param packet frame data
+ * @brief FIXME return FlowKey, FlowRecord or int? Fro error reporting etc.
+ * 
+ * @return int 
  */
-void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
-    (void)args;     // args parameter is not used in this function -> remove compiler warning
+int record_flow(Flowformat *flow) {
 
-    // create an ethernet header structure
-    struct ether_header *eth = (struct ether_header *)(packet);
-
-    // count and print RFC3339 timestamp
-    char ts_buf[MAX_TIMESTAMP_LEN];
-    struct tm *tm = localtime(&(header->ts.tv_sec));
-    if (tm == nullptr) {
-        fprintf(stderr, "localtime: %s\n", strerror(errno));
-        pcap_breakloop(pcap);
-        return;
-    }
-    // get YYYY-MM-DDTHH:MM:SS from tm
-    if (strftime(ts_buf, 100, "%FT%T.", tm) == 0) {
-        fprintf(stderr, "main: Invalid timestamp\n");
-        pcap_breakloop(pcap);
-        return;
-    }
-    printf("%s", ts_buf);
-
-    // count and print milliseconds (time in milliseconds == seconds * 1000)
-    snprintf(ts_buf, MAX_TIMESTAMP_LEN - 1, "%lld", header->ts.tv_sec*1000LL + header->ts.tv_usec/1000);
-    size_t len = strlen(ts_buf);
-    printf("%c%c%c", ts_buf[len-3], ts_buf[len-2], ts_buf[len-1]);
-
-    // count and print time zone offset
-    long tz_off = tm->tm_gmtoff / 3600;
-    if (tz_off >= 0)
-        printf("+%02lu.00\n", tz_off);
-    else
-        printf("-%02lu.00\n", (-tz_off));
-
-    // print src MAC address
-    printf("src MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-           eth->ether_shost[0], eth->ether_shost[1], eth->ether_shost[2],
-           eth->ether_shost[3], eth->ether_shost[4], eth->ether_shost[5]);
-    // print dst MAC address
-    printf("dst MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-           eth->ether_dhost[0], eth->ether_dhost[1], eth->ether_dhost[2],
-           eth->ether_dhost[3], eth->ether_dhost[4], eth->ether_dhost[5]);
-
-    // print frame length
-    printf("frame length: %d\n", header->caplen);
-
-    FlowKey capturedFlow;
-
-    // get etherType
-    eth->ether_type = ntohs(eth->ether_type);
-    // process and print the packet
-    if (eth->ether_type == IPv4)
-        capturedFlow = process_ipv4(*header, packet);
-    else if (eth->ether_type == IPv6)
-    //    process_ipv6(*header, packet);
-        return;
-    printf("\n");
+  u_int32_t current_time = flow->first; // my current time, TODO check if htonl whould be used
 
     // got the newFlow
 
@@ -484,44 +303,24 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
       }
       */
      printf("1\n");
+
+     // prochazime vsechny flows a u kazdeho checkujeme timer
+     // FIXME ukladame si u toho i info, ktery flow je nejstarsi, zby se mohl exportovat?
+     // I think it is not necessary - to se nebude asi dit tak casto, ze by se dosahnlo velikosti cache
     auto key_value = flows.begin();
     while (key_value != flows.end()) {
       printf("2\n");
-      Flowformat& flow = key_value->second;
+      Flowformat& flowsIterator = key_value->second;
       // active and inactive timer check + export
-      if (htonl(header->ts.tv_sec) /* current time */ - flow.first > opts->active_timer /* TODO check seconds and type */
-          || htonl(header->ts.tv_sec) /* current time */ - flow.last > opts->inactive_timer) {
+      if (current_time - flowsIterator.first > opts->active_timer /* TODO check seconds and type */
+          || current_time - flowsIterator.last > opts->inactive_timer) {
         printf("3\n");
         // export flow
-        // create a netflow packet to send
-        NetFlowPacket *netflowpacket = new NetFlowPacket;
-        // create netflow header
-        Netflowhdr netflowhdr;
-        netflowhdr.version = htons(5);        // yes
-        netflowhdr.count = htons(1);          // yes
-        netflowhdr.sys_uptime = 0;            // ?
-        netflowhdr.unix_sec = 0;              // yes
-        netflowhdr.unix_nsecs = 0;            // yes
-        netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
-        netflowhdr.engine_type = 0;           // ?
-        netflowhdr.engine_id = 0;             // ?
-        netflowhdr.sampling_interval = 0;     // ?
-        // add the flowrecord data to the packet
-        netflowpacket->netflowhdr = netflowhdr;
-        netflowpacket->flowformat = flow;
-        // send the flow
-        int msg_size = 100; // FIXME how many
-        int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
-        if (i == -1)                   // check if data was sent correctly
-          err(1,"send() failed");
-        else if (i != msg_size)
-          err(1,"send(): buffer written partially");
-        else
-          printf("msg sent successfully\n");
+        export_flow(flowsIterator);
         
         // remove flow from flows
         printf("dddd\n");
-        key_value = flows.erase(key_value);
+        key_value = flows.erase(key_value); // do I have to delete the record somehow with delete?
         printf("5\n");
         //toRemove = key_value.first;
       } else {
@@ -549,72 +348,29 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
         }
       }
       // export the flow
-      // create a netflow packet to send
-        NetFlowPacket *netflowpacket = new NetFlowPacket;
-        // create netflow header
-        Netflowhdr netflowhdr;
-        netflowhdr.version = htons(5);        // yes
-        netflowhdr.count = htons(1);          // yes
-        netflowhdr.sys_uptime = 0;            // ?
-        netflowhdr.unix_sec = 0;              // yes
-        netflowhdr.unix_nsecs = 0;            // yes
-        netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
-        netflowhdr.engine_type = 0;           // ?
-        netflowhdr.engine_id = 0;             // ?
-        netflowhdr.sampling_interval = 0;     // ?
-        // add the flowrecord data to the packet
-        netflowpacket->netflowhdr = netflowhdr;
-        netflowpacket->flowformat = flows[toRemove];
-        // send the flow
-        int msg_size = 100; // FIXME how many
-        int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
-        if (i == -1)                   // check if data was sent correctly
-          err(1,"send() failed");
-        else if (i != msg_size)
-          err(1,"send(): buffer written partially");
-        else
-          printf("msg sent successfully\n");
+      export_flow(flows[toRemove]);
 
       // erase it
       flows.erase(toRemove);
     }
 
     // insert new flow
+    //typedef std::tuple<in_addr, in_addr, u_int8_t, u_int8_t, u_int16_t, u_int16_t> FlowKey;
 
-
+    FlowKey capturedFlow = std::make_tuple(flow->srcaddr, flow->dstaddr, flow->prot, 
+                                            flow->tos, flow->srcport, flow->dstport);
 
     // find in the FlowMap
     if (flows.find(capturedFlow) != flows.end()) {
       // if exists then update the record
       printf("found\n");
-      flows[capturedFlow].last = htonl(header->ts.tv_sec);  // FIXME wrong date
+      // TODO update the record in CapturedFlow index //flows[capturedFlow].last = htonl(header->ts.tv_sec);  // FIXME wrong date
     } else {
       printf("bbbb\n");
       // if doesn't then create new record
       //flows.insert(capturedFlow);
-      Flowformat flowformat;
-      flowformat.srcaddr = std::get<0>(capturedFlow).s_addr;  // yes
-      flowformat.dstaddr = std::get<1>(capturedFlow).s_addr;  // yes
-      flowformat.nexthop = 0;                                 // no OK
-      flowformat.input = 0;                                   // no
-      flowformat.output = 0;                                  // no
-      flowformat.dPkts = htonl(1);                            // yes - one packet currently
-      flowformat.dOctets = 0;                                 // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
-      flowformat.first = htonl(header->ts.tv_sec);            // yes - SysUptime at start of flow -> time in the first packet of the flow hopefully? FIXME
-      flowformat.last = htonl(header->ts.tv_sec);             // yes - same as .first -> if this the only packet I think this is right
-      flowformat.srcport = htons(std::get<4>(capturedFlow));  // yes
-      flowformat.dstport = htons(std::get<5>(capturedFlow));  // yes
-      flowformat.pad1 = 0;                                    // no OK
-      flowformat.tcp_flags = 0;                               // yes - cumulative OR
-      flowformat.prot = std::get<2>(capturedFlow);            // yes
-      flowformat.tos = std::get<3>(capturedFlow);             // yes
-      flowformat.src_as = 0;                                  // no OK
-      flowformat.dst_as = 0;                                  // no OK
-      flowformat.src_mask = 32;                               // yes - 32?
-      flowformat.dst_mask = 32;                               // yes - 32?
-      flowformat.pad2 = 0;                                    // no OK
       // insert the flow
-      flows[capturedFlow] = flowformat;
+      flows[capturedFlow] = *flow;   // TODO *flow or flow - memleak/segfault
       printf("not found - inserted\n");
     }
     printf("ccccc\n");
@@ -625,10 +381,309 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
     // only pri exportu
       
 
-    printf("--------- ONE FRAME PROCESSED -----------\n");
+
+  
+  return 0; // success
+}
+
+/**
+ * Function prints more information about UDP packet. It prints source
+ * and destination ports, checksum and the frame data;
+ *
+ * @param header packet header
+ * @param packet frame data
+ * @param header_length length of the IP header
+ */
+Flowformat *process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, Flowformat *flowformat) {
+    printf("protocol: UDP\n");
+    // cast frame data to udphdr structure
+    struct udphdr *udp = (struct udphdr *)(packet + header_length);
+
+    // print source and destination ports
+    printf("src port: %u\n", ntohs(udp->source));
+    printf("dst port: %u\n", ntohs(udp->dest));
+    // print checksum
+    printf("checksum: 0x%04x\n", ntohs(udp->check));
+    // print frame data
+    print_frame(header.caplen, packet);
+
+   // std::get<4>(newFlow) = ntohs(udp->source);
+   // std::get<5>(newFlow) = ntohs(udp->dest);
+
+  // update the flowformat record with the info found in ipv4 protocol
+  flowformat->input = 0;                                   // no
+  flowformat->output = 0;                                  // no
+  //flowformat->dOctets = 0;     // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
+  flowformat->srcport = udp->source; //htons(std::get<4>(capturedFlow));  // yes
+  flowformat->dstport = udp->dest; //htons(std::get<5>(capturedFlow));  // yes
+  flowformat->tcp_flags = 0;                               // yes - cumulative OR
+
+  record_flow(flowformat);
+
+    return flowformat;
+}
+
+/**
+ * Function prints more information about TCP packet. It prints source
+ * and destination ports, checksum and frame data.
+ *
+ * @param header packet header
+ * @param packet frame data
+ * @param header_length length of the IP header
+ */
+Flowformat *process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, Flowformat *flowformat) {
+    printf("protocol: TCP\n");
+    // cast frame data to tcphdr structure
+    struct tcphdr *tcp = (struct tcphdr *)(packet + header_length);
+
+    // print source and destination ports
+    printf("src port: %u\n", ntohs(tcp->th_sport));
+    printf("dst port: %u\n", ntohs(tcp->th_dport));
+    // print checksum
+    printf("checksum: 0x%04x\n", ntohs(tcp->th_sum));
+
+  //  std::get<4>(newFlow) = ntohs(tcp->th_sport);
+  //  std::get<5>(newFlow) = ntohs(tcp->th_dport);
+//
+    // print frame data
+    print_frame(header.caplen, packet);
+
+  // update the flowformat record with the info found in ipv4 protocol
+  flowformat->input = 0;                                   // no
+  flowformat->output = 0;                                  // no
+  //flowformat->dOctets = 0;     // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
+  flowformat->srcport = tcp->th_sport; //htons(std::get<4>(capturedFlow));  // yes
+  flowformat->dstport = tcp->th_dport; //htons(std::get<5>(capturedFlow));  // yes
+  flowformat->tcp_flags = 0;                               // yes - cumulative OR
+
+record_flow(flowformat);
+    return flowformat;
+}
+
+/**
+ * Function prints more information about ICMP packet - type, code, checksum
+ * and the frame data.
+ *
+ * @param header packet header
+ * @param packet frame data
+ * @param header_length length of the IP header
+ */
+Flowformat *process_icmp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, Flowformat *flowformat) {
+    // cast to icmphdr structure
+    struct icmphdr *icmp = (struct icmphdr *)(packet + header_length);
+
+    // print type, code, checksum and frame data
+    if (icmp->type == 0)
+        printf("type: 0 (Echo reply)\n");
+    else if (icmp->type == 8)
+        printf("type: 8 (Echo request)\n");
+    else
+        printf("type: %d\n", icmp->type);
+    printf("code: %d\n", icmp->code);
+    printf("checksum: 0x%04x\n", ntohs(icmp->checksum));
+    print_frame(header.caplen, packet);
+
+  // update the flowformat record with the info found in ipv4 protocol
+  flowformat->input = 0;                                   // no
+  flowformat->output = 0;                                  // no
+  //flowformat->dOctets = 0;     // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
+  flowformat->srcport = 0; //htons(std::get<4>(capturedFlow));  // yes
+  flowformat->dstport = 0; //htons(std::get<5>(capturedFlow));  // yes
+  flowformat->tcp_flags = 0;                               // yes - cumulative OR
+
+record_flow(flowformat);
+
+  return flowformat;
+}
+
+/**
+ * Function processes IPv4 packet. It checks the header length and IP version,
+ * prints IP addresses and call appropriate function to print more information.
+ *
+ * @param header packet header
+ * @param packet packet data
+ */
+Flowformat *process_ipv4(struct pcap_pkthdr header, const u_char *packet, Flowformat *flowformat) {
+    struct ip *ip = (struct ip*)(packet + ETH_HEADER_SIZE);       // IP header
+    // check the IP header length and IP version number
+    if (ip->ip_hl * 4 < 20 || ip->ip_v != 4) {
+        printf("packet with invalid header catched\n");
+        pcap_breakloop(pcap);
+        // TODO return NULL;
+        exit(1);  // FIXME remove!!!
+    }
+
+    //FlowKey newFlow = std::make_tuple(ip->ip_src, ip->ip_dst, ip->ip_p, ip->ip_tos, 0, 0);
+
+  // update the flowformat record with the info found in ipv4 protocol
+  flowformat->srcaddr = ip->ip_src.s_addr;  // yes
+  flowformat->dstaddr = ip->ip_dst.s_addr;  // yes
+  //flowformat->input = 0;                                   // no
+  //flowformat->output = 0;                                  // no
+  flowformat->dOctets = 0;     // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
+  //flowformat->srcport = 0; //htons(std::get<4>(capturedFlow));  // yes
+  //flowformat->dstport = 0; //htons(std::get<5>(capturedFlow));  // yes
+  //flowformat->tcp_flags = 0;                               // yes - cumulative OR
+  flowformat->prot = ip->ip_p;            // yes
+  flowformat->tos = ip->ip_tos;             // yes
+    /*
+    flows[std::make_tuple(0, 0, 0, 1, 0, 0)] = flowformat;
+  //auto itr = m.find(std::make_tuple(0,0,0,1,0,0));
+  if (flows.find(std::make_tuple(0,0,0,1,0,0)) != flows.end()) {
+    printf("found\n");
+  } else {
+    printf("not found\n");
+  }
+  */
+
+    // print source and destination IP addresses
+    printf("src IP: %s\n", inet_ntoa(ip->ip_src));
+    printf("dst IP: %s\n", inet_ntoa(ip->ip_dst));
+
+    // print ToS
+    printf("tos: %d\n", ip->ip_tos);
+
+    // check protocol type (TCP/UDP/ICMP) and print more information
+    if (ip->ip_p == TCP)
+        flowformat = process_tcp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
+    else if (ip->ip_p == UDP)
+        flowformat = process_udp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
+    else if (ip->ip_p == ICMPv4) {
+        printf("protocol: ICMP\n");
+        flowformat = process_icmp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
+    }
+
+    //flows[newFlow].tos = ip->ip_tos;
+    //flows[newFlow].dOctets
+
+    return flowformat;
 }
 
 
+
+/**
+ * Callback function that is called by pcap_loop() if a packet is sniffed.
+ * Function processes one frame. It prints RFC3339 timestamp, source MAC address,
+ * destination MAC address and frame length. By the EtherType is decided what
+ * protocol should be processed and appropriate function is called to print
+ * more information about the packet.
+ *
+ * @param args mandatory argument of the callback function, not used in this function
+ * @param header packet header structure
+ * @param packet frame data
+ */
+void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
+  (void)args;     // args parameter is not used in this function -> remove compiler warning
+
+  // create an ethernet header structure
+  struct ether_header *eth = (struct ether_header *)(packet);
+
+  // count and print RFC3339 timestamp
+  char ts_buf[MAX_TIMESTAMP_LEN];
+  struct tm *tm = localtime(&(header->ts.tv_sec));
+  if (tm == nullptr) {
+    fprintf(stderr, "localtime: %s\n", strerror(errno));
+    pcap_breakloop(pcap);
+    return;
+  }
+  // get YYYY-MM-DDTHH:MM:SS from tm
+  if (strftime(ts_buf, 100, "%FT%T.", tm) == 0) {
+    fprintf(stderr, "main: Invalid timestamp\n");
+    pcap_breakloop(pcap);
+    return;
+  }
+  printf("%s", ts_buf);
+
+  // count and print milliseconds (time in milliseconds == seconds * 1000)
+  snprintf(ts_buf, MAX_TIMESTAMP_LEN - 1, "%lld", header->ts.tv_sec*1000LL + header->ts.tv_usec/1000);
+  size_t len = strlen(ts_buf);
+  printf("%c%c%c", ts_buf[len-3], ts_buf[len-2], ts_buf[len-1]);
+
+  // count and print time zone offset
+  long tz_off = tm->tm_gmtoff / 3600;
+  if (tz_off >= 0)
+    printf("+%02lu.00\n", tz_off);
+  else
+    printf("-%02lu.00\n", (-tz_off));
+
+  // print src MAC address
+  printf("src MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+          eth->ether_shost[0], eth->ether_shost[1], eth->ether_shost[2],
+          eth->ether_shost[3], eth->ether_shost[4], eth->ether_shost[5]);
+  // print dst MAC address
+  printf("dst MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+          eth->ether_dhost[0], eth->ether_dhost[1], eth->ether_dhost[2],
+          eth->ether_dhost[3], eth->ether_dhost[4], eth->ether_dhost[5]);
+
+  // print frame length
+  printf("frame length: %d\n", header->caplen);
+
+  Flowformat *flowformat = new Flowformat;
+  // add the time and other useful information to the flowrecord
+  flowformat->srcaddr = 0;  // yes
+  flowformat->dstaddr = 0; // std::get<1>(capturedFlow).s_addr;  // yes
+  flowformat->nexthop = 0;                                 // no OK
+  flowformat->input = 0;                                   // no
+  flowformat->output = 0;                                  // no
+  flowformat->dPkts = htonl(1);                            // yes - one packet currently
+  flowformat->dOctets = 0;                                 // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
+  flowformat->first = htonl(header->ts.tv_sec);            // yes - SysUptime at start of flow -> time in the first packet of the flow hopefully? FIXME
+  flowformat->last = htonl(header->ts.tv_sec);             // yes - same as .first -> if this the only packet I think this is right
+  flowformat->srcport = 0; //htons(std::get<4>(capturedFlow));  // yes
+  flowformat->dstport = 0; //htons(std::get<5>(capturedFlow));  // yes
+  flowformat->pad1 = 0;                                    // no OK
+  flowformat->tcp_flags = 0;                               // yes - cumulative OR
+  flowformat->prot = 0; //std::get<2>(capturedFlow);            // yes
+  flowformat->tos = 0; //std::get<3>(capturedFlow);             // yes
+  flowformat->src_as = 0;                                  // no OK
+  flowformat->dst_as = 0;                                  // no OK
+  flowformat->src_mask = 32;                               // yes - 32?
+  flowformat->dst_mask = 32;                               // yes - 32?
+  flowformat->pad2 = 0;                                    // no OK
+
+  // get etherType
+  eth->ether_type = ntohs(eth->ether_type);
+  // process and print the packet
+  if (eth->ether_type == IPv4)
+    flowformat = process_ipv4(*header, packet, flowformat);
+  else if (eth->ether_type == IPv6) {
+    printf("---- IPv6 ----\n");
+    return;
+  }
+  //    process_ipv6(*header, packet);
+    return;
+  printf("\n");
+
+  // adding and wexporting netflows done in process_tcp/udp/icmp functions.
+  // TODO to have a clean code and delte objects in the same functions where they were created:
+  delete flowformat;
+
+  printf("--------- ONE FRAME PROCESSED -----------\n");
+}
+
+
+/**
+ * Function creates a filter for filtering the packets. How the filter is created
+ * depends on command line arguments (stored in opts structure).
+ *
+ * @param opts structure that stores command line options
+ * @param fp pointer to the compiled filter expression
+ * @return true if successful, false if an error occurred
+ */
+bool make_filter(struct bpf_program *fp) {
+    // compile and set the filter to pcap
+    // FIXME not sure about icmp6
+    // FIXME check if the ip AND () is okay (ip should filter only ipv4 addresses)
+    if (pcap_compile(pcap, fp, "ip and (udp or tcp or icmp)", 0, PCAP_NETMASK_UNKNOWN) == -1) {
+        fprintf(stderr, "pcap_compile: invalid filter string\n");
+        return false;
+    }
+    if (pcap_setfilter(pcap, fp) == -1) {
+        fprintf(stderr, "pcap_setfilter: Error.\n");
+        return false;
+    }
+    return true;
+}
 
 /**
  * Function handler for handling SIGINT signal. Handler breaks the loop that is

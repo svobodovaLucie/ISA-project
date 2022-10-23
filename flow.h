@@ -147,12 +147,12 @@ struct NetFlowPacket {
  * FIXME: SrcIf - source interface - how to get/store it?
  * SrcIPadd, DstIPadd, Proto, ToS, SrcPort, DstPort
  */
-typedef std::tuple<in_addr, in_addr, u_int8_t, u_int8_t, u_int16_t, u_int16_t> FlowKey;
+typedef std::tuple<u_int32_t, u_int32_t, u_int8_t, u_int8_t, u_int16_t, u_int16_t> FlowKey;
 
 struct key_hash : public std::unary_function<FlowKey, std::size_t> {
     std::size_t operator()(const FlowKey &k) const {
-        u_int32_t srcaddr = std::get<0>(k).s_addr;
-        u_int32_t dstaddr = std::get<1>(k).s_addr;
+        u_int32_t srcaddr = std::get<0>(k);
+        u_int32_t dstaddr = std::get<1>(k);
 
         return srcaddr ^ dstaddr ^ std::get<2>(k) ^ 
                std::get<3>(k) ^ std::get<4>(k) ^ std::get<5>(k); 
@@ -161,8 +161,8 @@ struct key_hash : public std::unary_function<FlowKey, std::size_t> {
 
 struct key_equal : std::binary_function<FlowKey, FlowKey, bool> {
     bool operator()(FlowKey const& x, FlowKey const& y) const {
-        return ( std::get<0>(x).s_addr == std::get<0>(y).s_addr &&
-                 std::get<1>(x).s_addr == std::get<1>(y).s_addr &&
+        return ( std::get<0>(x) == std::get<0>(y) &&
+                 std::get<1>(x) == std::get<1>(y) &&
                  std::get<2>(x) == std::get<2>(y) &&
                  std::get<3>(x) == std::get<3>(y) &&
                  std::get<4>(x) == std::get<4>(y) &&
