@@ -51,6 +51,22 @@ void print_help() {
 }
 
 /**
+ * Function releases all of the allocated resources.
+ *
+ * @param opts structure that stores command line options
+ * @param fp compiled filter
+ */
+void release_resources() {
+  fprintf(stderr, "Releasing resources...\n");    // TODO remove
+  pcap_close(pcap);           // global pcap handler
+  pcap_freecode(&fp);         // compiled filter
+  delete opts;             // options structure
+  fprintf(stderr, "* Closing the client socket ...\n");
+  close(sock);
+  fprintf(stderr, "Resources released.\n");       // TODO remove
+}
+
+/**
  * Function loads command line options into opts structure using getopt_long() function.
  *
  * @return 0 if successful, 1 if an error occurred, 2 if the help option is present
@@ -160,73 +176,7 @@ int load_opts(Options *opts, int argc, char *argv[])
   return 0; // successful
 }
 
-/**
- * Function prints the formatted frame data to the standard output.
- * Format of one line:
- * 0x0000  xx xx xx xx xx xx xx xx  xx xx xx xx xx xx xx xx  ........ ........
- * xx - hexadecimals, . - characters (non-printable character is printed as '.')
- *
- * @param length frame length
- * @param frame frame data
- */
-void print_frame(size_t length, const u_char *frame) {
-    size_t n = 0;       //  printed lines counter
-    size_t i = 0;       // position to be printed in the frame data string
-    size_t full_rows = length - (length % FRAME_PRINT_LEN); // number of rows with 16 characters
-    size_t j;           // loop counter
-
-    // print all rows with length == 16 characters (FRAME_PRINT_LEN)
-    while (n < full_rows) {
-        // print one row
-        // print hexadecimals
-        printf("0x%04lx:  ", n);
-        for (unsigned k = 0; k < 2; k++) {
-            for (j = 0; j < FRAME_PRINT_LEN/2; j++) {
-                printf("%02x ", frame[i++]);
-            }
-            printf(" ");
-        }
-        // print characters
-        i = i - FRAME_PRINT_LEN;
-        for (unsigned k = 0; k < 2; k++) {
-            for (j = 0; j < FRAME_PRINT_LEN/2; j++) {
-                if (isprint(frame[i])) {
-                    printf("%c", frame[i]);
-                } else {
-                    printf(".");
-                }
-                i++;
-            }
-            printf(" ");
-        }
-        n = n + FRAME_PRINT_LEN;
-        printf("\n");
-    }
-    // print last row
-    printf("0x%04lx:  ", n);
-    while (i < length) {
-        printf("%02x ", frame[i++]);
-    }
-    for (size_t num_of_spaces = 0; num_of_spaces < FRAME_PRINT_LEN - (length % FRAME_PRINT_LEN); num_of_spaces++) {
-        printf("   ");
-    }
-    printf("  ");
-    i = n;
-    j = 0;
-    while (i < length) {
-        if (j++ == 8)
-            printf(" ");
-        if (isprint(frame[i])) {
-            printf("%c", frame[i]);
-        } else {
-            printf(".");
-        }
-        i++;
-    }
-    printf("\n");
-}
-
-
+// TODO remove
 void printf_flows() {
   std::cout << "flows:\n" << "=============" << std::endl;
   for (auto& keyValue : flows) {
@@ -244,35 +194,44 @@ void printf_flows() {
 }
 
 int export_flow(Flowformat flow_to_export) {
-// export flow
-        // create a netflow packet to send
-        NetFlowPacket *netflowpacket = new NetFlowPacket;
-        // create netflow header
-        Netflowhdr netflowhdr;
-        netflowhdr.version = htons(5);        // yes
-        netflowhdr.count = htons(1);          // yes
-        netflowhdr.sys_uptime = 0;            // ?
-        netflowhdr.unix_sec = 0;              // yes
-        netflowhdr.unix_nsecs = 0;            // yes
-        netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
-        netflowhdr.engine_type = 0;           // ?
-        netflowhdr.engine_id = 0;             // ?
-        netflowhdr.sampling_interval = 0;     // ?
-        // add the flowrecord data to the packet
-        netflowpacket->netflowhdr = netflowhdr;
-        // TODO maybe Segfault
-        netflowpacket->flowformat = flow_to_export;    // do I have to memcpy or sth like that?
-        // send the flow
-        int msg_size = 100; // FIXME how many
-        int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
-        if (i == -1)                   // check if data was sent correctly
-          err(1,"send() failed");
-        else if (i != msg_size)
-          err(1,"send(): buffer written partially");
-        else
-          printf("msg sent successfully\n");
+  // export flow
+  // create a netflow packet to send
+  NetFlowPacket *netflowpacket = new NetFlowPacket;
+  // create netflow header
+  Netflowhdr netflowhdr;
+  netflowhdr.version = htons(5);        // yes
+  netflowhdr.count = htons(1);          // yes
+  netflowhdr.sys_uptime = 0;            // ?
+  netflowhdr.unix_sec = 0;              // yes
+  netflowhdr.unix_nsecs = 0;            // yes
+  netflowhdr.flow_sequence = flow_seq++;// yes - cislo flow, inkrementace pri generovani flows
+  netflowhdr.engine_type = 0;           // ?
+  netflowhdr.engine_id = 0;             // ?
+  netflowhdr.sampling_interval = 0;     // ?
+  // add the flowrecord data to the packet
+  netflowpacket->netflowhdr = netflowhdr;
+  // TODO maybe Segfault
+  netflowpacket->flowformat = flow_to_export;    // do I have to memcpy or sth like that?
+  // send the flow
+  int msg_size = 100; // FIXME how many
+  int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
+  
+  delete netflowpacket;
+  if (i == -1) {                    // check if data was sent correctly
+    //err(1,"send() failed");       // TODO memleak in the err() function - not releasing the resources
+    fprintf(stderr, "send() failed\n");
+    release_resources();            // TODO memleak - flow_to_export is not deleted
+    exit(1);
+  } else if (i != msg_size) {                    // check if data was sent correctly
+    //err(1,"send(): buffer written partially");       // TODO memleak in the err() function - not releasing the resources
+    fprintf(stderr, "send() failed\n");
+    release_resources();            // TODO memleak - flow_to_export is not deleted
+    exit(1);
+  }
+  else
+    printf("msg sent successfully\n");
 
-      return 0; // success ir return flow or sth
+  return 0; // success ir return flow or sth
 }
 
 /**
@@ -284,104 +243,59 @@ int record_flow(Flowformat *flow) {
 
   u_int32_t current_time = flow->first; // my current time, TODO check if htonl whould be used
 
-    // got the newFlow
+  printf_flows();   // TODO remove
 
-    // -------------------- flows ----------------------
-
-    // iterate through the flows and print them... just for the debugging 
-    // TODO remove
-    printf_flows();
-
-    // active and inactive timers check
-    //FlowKey *toRemove = nullptr;
-    //for (auto& key_value : flows) {
-      /*
-      if (toRemove != nullptr) {
-        printf("inside\n");
-        flows.erase(*toRemove);
-        // please no Segfault
-      }
-      */
-     printf("1\n");
-
-     // prochazime vsechny flows a u kazdeho checkujeme timer
-     // FIXME ukladame si u toho i info, ktery flow je nejstarsi, zby se mohl exportovat?
-     // I think it is not necessary - to se nebude asi dit tak casto, ze by se dosahnlo velikosti cache
-    auto key_value = flows.begin();
-    while (key_value != flows.end()) {
-      printf("2\n");
-      Flowformat& flowsIterator = key_value->second;
-      // active and inactive timer check + export
-      if (current_time - flowsIterator.first > opts->active_timer /* TODO check seconds and type */
-          || current_time - flowsIterator.last > opts->inactive_timer) {
-        printf("3\n");
-        // export flow
-        export_flow(flowsIterator);
-        
-        // remove flow from flows
-        printf("dddd\n");
-        key_value = flows.erase(key_value); // do I have to delete the record somehow with delete?
-        printf("5\n");
-        //toRemove = key_value.first;
-      } else {
-        key_value++;
-      }
-      printf("234\n");
+  // iterate through all flows and check active and inactive timers
+  auto key_value = flows.begin();
+  while (key_value != flows.end()) {
+    Flowformat& flowsIterator = key_value->second;
+    // active and inactive timer check + export
+    if (current_time - flowsIterator.first > opts->active_timer /* TODO check seconds and type */
+        || current_time - flowsIterator.last > opts->inactive_timer) {
+      // export flow
+      export_flow(flowsIterator);
       
-
-    }
-    printf("aaaa\n");
-
-    // cache size (count) check + export
-    printf("m-----------------%d and flows size: %ld\n", opts->count, flows.size());
-    if (flows.size() >= opts->count) {
-      // min - nejstarsi zaznam v cachi - tzn. s nejmensim first nebo last casem?
-      u_int32_t min = 765746355; // FIXME: use now(); nebo nejaky random packet, aby bylo jiste, ze se bude moct vymazat
-
-      // packet with the minimal value -> the one to be removed
-      FlowKey toRemove;
-
-      for (auto& key_value : flows) {
-        if (key_value.second.first < min) {
-          min = key_value.second.first;
-          toRemove = key_value.first;
-        }
-      }
-      // export the flow
-      export_flow(flows[toRemove]);
-
-      // erase it
-      flows.erase(toRemove);
-    }
-
-    // insert new flow
-    //typedef std::tuple<in_addr, in_addr, u_int8_t, u_int8_t, u_int16_t, u_int16_t> FlowKey;
-
-    FlowKey capturedFlow = std::make_tuple(flow->srcaddr, flow->dstaddr, flow->prot, 
-                                            flow->tos, flow->srcport, flow->dstport);
-
-    // find in the FlowMap
-    if (flows.find(capturedFlow) != flows.end()) {
-      // if exists then update the record
-      printf("found\n");
-      // TODO update the record in CapturedFlow index //flows[capturedFlow].last = htonl(header->ts.tv_sec);  // FIXME wrong date
+      // remove flow from flows
+      key_value = flows.erase(key_value); // do I have to delete the record somehow with delete?
     } else {
-      printf("bbbb\n");
-      // if doesn't then create new record
-      //flows.insert(capturedFlow);
-      // insert the flow
-      flows[capturedFlow] = *flow;   // TODO *flow or flow - memleak/segfault
-      printf("not found - inserted\n");
+      key_value++;
     }
-    printf("ccccc\n");
+  }
+
+  // cache size (count) check + export
+  printf("m-----------------%d and flows size: %ld\n", opts->count, flows.size());  // TODO remove
+  if (flows.size() >= opts->count) {
+    u_int32_t min = 765746355;  // FIXME: use now() function for getting the current time - it will be the maximum every time or use the time of the first packet
+    FlowKey toRemove;           // packet with the minimal value -> the one to be removed
+    // iterate through the flows to get the oldest one
+    for (auto& key_value : flows) {
+      if (key_value.second.first < min) {
+        min = key_value.second.first;
+        toRemove = key_value.first;
+      }
+    }
+    // export the flow
+    export_flow(flows[toRemove]);
+
+    // erase it
+    flows.erase(toRemove);
+  }
+
+  // key of the current flow
+  FlowKey capturedFlow = std::make_tuple(flow->srcaddr, flow->dstaddr, flow->prot, 
+                                          flow->tos, flow->srcport, flow->dstport);
+
+  // find the current flow in the flows
+  if (flows.find(capturedFlow) != flows.end()) {
     // if exists then update the record
-    // if doesn't then create new record
-    // timers, cache...
-
-    // only pri exportu
-      
-
-
+    printf("Flow is already present in flows.\n");
+    // TODO update the record in CapturedFlow index //flows[capturedFlow].last = htonl(header->ts.tv_sec);  // FIXME wrong date
+  } else {
+    // if doesn't exist then create new record
+    printf("Flow wasn't found in flows, inserting...\n");
+    // insert the flow
+    flows[capturedFlow] = *flow;   // TODO *flow or flow - memleak/segfault
+  }
   
   return 0; // success
 }
@@ -395,20 +309,10 @@ int record_flow(Flowformat *flow) {
  * @param header_length length of the IP header
  */
 Flowformat *process_udp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, Flowformat *flowformat) {
-    printf("protocol: UDP\n");
-    // cast frame data to udphdr structure
-    struct udphdr *udp = (struct udphdr *)(packet + header_length);
+  (void)header; // TODO remove the parameter header
 
-    // print source and destination ports
-    printf("src port: %u\n", ntohs(udp->source));
-    printf("dst port: %u\n", ntohs(udp->dest));
-    // print checksum
-    printf("checksum: 0x%04x\n", ntohs(udp->check));
-    // print frame data
-    print_frame(header.caplen, packet);
-
-   // std::get<4>(newFlow) = ntohs(udp->source);
-   // std::get<5>(newFlow) = ntohs(udp->dest);
+  // cast frame data to udphdr structure
+  struct udphdr *udp = (struct udphdr *)(packet + header_length);
 
   // update the flowformat record with the info found in ipv4 protocol
   flowformat->input = 0;                                   // no
@@ -420,7 +324,7 @@ Flowformat *process_udp(struct pcap_pkthdr header, const u_char *packet, unsigne
 
   record_flow(flowformat);
 
-    return flowformat;
+  return flowformat;
 }
 
 /**
@@ -432,21 +336,10 @@ Flowformat *process_udp(struct pcap_pkthdr header, const u_char *packet, unsigne
  * @param header_length length of the IP header
  */
 Flowformat *process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, Flowformat *flowformat) {
-    printf("protocol: TCP\n");
-    // cast frame data to tcphdr structure
-    struct tcphdr *tcp = (struct tcphdr *)(packet + header_length);
+  (void)header; // TODO remove the parameter header
 
-    // print source and destination ports
-    printf("src port: %u\n", ntohs(tcp->th_sport));
-    printf("dst port: %u\n", ntohs(tcp->th_dport));
-    // print checksum
-    printf("checksum: 0x%04x\n", ntohs(tcp->th_sum));
-
-  //  std::get<4>(newFlow) = ntohs(tcp->th_sport);
-  //  std::get<5>(newFlow) = ntohs(tcp->th_dport);
-//
-    // print frame data
-    print_frame(header.caplen, packet);
+  // cast frame data to tcphdr structure
+  struct tcphdr *tcp = (struct tcphdr *)(packet + header_length);
 
   // update the flowformat record with the info found in ipv4 protocol
   flowformat->input = 0;                                   // no
@@ -456,8 +349,8 @@ Flowformat *process_tcp(struct pcap_pkthdr header, const u_char *packet, unsigne
   flowformat->dstport = tcp->th_dport; //htons(std::get<5>(capturedFlow));  // yes
   flowformat->tcp_flags = 0;                               // yes - cumulative OR
 
-record_flow(flowformat);
-    return flowformat;
+  record_flow(flowformat);
+  return flowformat;
 }
 
 /**
@@ -469,19 +362,20 @@ record_flow(flowformat);
  * @param header_length length of the IP header
  */
 Flowformat *process_icmp(struct pcap_pkthdr header, const u_char *packet, unsigned int header_length, Flowformat *flowformat) {
-    // cast to icmphdr structure
-    struct icmphdr *icmp = (struct icmphdr *)(packet + header_length);
+  (void)header; // TODO remove the parameter header
 
-    // print type, code, checksum and frame data
-    if (icmp->type == 0)
-        printf("type: 0 (Echo reply)\n");
-    else if (icmp->type == 8)
-        printf("type: 8 (Echo request)\n");
-    else
-        printf("type: %d\n", icmp->type);
-    printf("code: %d\n", icmp->code);
-    printf("checksum: 0x%04x\n", ntohs(icmp->checksum));
-    print_frame(header.caplen, packet);
+  // cast to icmphdr structure
+  struct icmphdr *icmp = (struct icmphdr *)(packet + header_length);
+
+  // TODO port from code and type
+  // print type, code, checksum and frame data
+  if (icmp->type == 0)
+      printf("type: 0 (Echo reply)\n");
+  else if (icmp->type == 8)
+      printf("type: 8 (Echo request)\n");
+  else
+      printf("type: %d\n", icmp->type);
+  printf("code: %d\n", icmp->code);
 
   // update the flowformat record with the info found in ipv4 protocol
   flowformat->input = 0;                                   // no
@@ -491,7 +385,7 @@ Flowformat *process_icmp(struct pcap_pkthdr header, const u_char *packet, unsign
   flowformat->dstport = 0; //htons(std::get<5>(capturedFlow));  // yes
   flowformat->tcp_flags = 0;                               // yes - cumulative OR
 
-record_flow(flowformat);
+  record_flow(flowformat);
 
   return flowformat;
 }
@@ -504,62 +398,33 @@ record_flow(flowformat);
  * @param packet packet data
  */
 Flowformat *process_ipv4(struct pcap_pkthdr header, const u_char *packet, Flowformat *flowformat) {
-    struct ip *ip = (struct ip*)(packet + ETH_HEADER_SIZE);       // IP header
-    // check the IP header length and IP version number
-    if (ip->ip_hl * 4 < 20 || ip->ip_v != 4) {
-        printf("packet with invalid header catched\n");
-        pcap_breakloop(pcap);
-        // TODO return NULL;
-        exit(1);  // FIXME remove!!!
-    }
-
-    //FlowKey newFlow = std::make_tuple(ip->ip_src, ip->ip_dst, ip->ip_p, ip->ip_tos, 0, 0);
+  struct ip *ip = (struct ip*)(packet + ETH_HEADER_SIZE);       // IP header
+  // check the IP header length and IP version number
+  if (ip->ip_hl * 4 < 20 || ip->ip_v != 4) {
+      printf("packet with invalid header catched\n");
+      pcap_breakloop(pcap);
+      // TODO return NULL;
+      exit(1);  // FIXME remove!!!
+  }
 
   // update the flowformat record with the info found in ipv4 protocol
   flowformat->srcaddr = ip->ip_src.s_addr;  // yes
   flowformat->dstaddr = ip->ip_dst.s_addr;  // yes
-  //flowformat->input = 0;                                   // no
-  //flowformat->output = 0;                                  // no
-  flowformat->dOctets = 0;     // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
-  //flowformat->srcport = 0; //htons(std::get<4>(capturedFlow));  // yes
-  //flowformat->dstport = 0; //htons(std::get<5>(capturedFlow));  // yes
-  //flowformat->tcp_flags = 0;                               // yes - cumulative OR
+  flowformat->dOctets = 0;     // TODO // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
   flowformat->prot = ip->ip_p;            // yes
   flowformat->tos = ip->ip_tos;             // yes
-    /*
-    flows[std::make_tuple(0, 0, 0, 1, 0, 0)] = flowformat;
-  //auto itr = m.find(std::make_tuple(0,0,0,1,0,0));
-  if (flows.find(std::make_tuple(0,0,0,1,0,0)) != flows.end()) {
-    printf("found\n");
-  } else {
-    printf("not found\n");
+
+  // check protocol type (TCP/UDP/ICMP) and print more information
+  if (ip->ip_p == TCP)
+    flowformat = process_tcp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
+  else if (ip->ip_p == UDP)
+    flowformat = process_udp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
+  else if (ip->ip_p == ICMPv4) {
+    flowformat = process_icmp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
   }
-  */
 
-    // print source and destination IP addresses
-    printf("src IP: %s\n", inet_ntoa(ip->ip_src));
-    printf("dst IP: %s\n", inet_ntoa(ip->ip_dst));
-
-    // print ToS
-    printf("tos: %d\n", ip->ip_tos);
-
-    // check protocol type (TCP/UDP/ICMP) and print more information
-    if (ip->ip_p == TCP)
-        flowformat = process_tcp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
-    else if (ip->ip_p == UDP)
-        flowformat = process_udp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
-    else if (ip->ip_p == ICMPv4) {
-        printf("protocol: ICMP\n");
-        flowformat = process_icmp(header, packet, ETH_HEADER_SIZE + (ip->ip_hl * 4), flowformat);
-    }
-
-    //flows[newFlow].tos = ip->ip_tos;
-    //flows[newFlow].dOctets
-
-    return flowformat;
+  return flowformat;
 }
-
-
 
 /**
  * Callback function that is called by pcap_loop() if a packet is sniffed.
@@ -606,18 +471,6 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
   else
     printf("-%02lu.00\n", (-tz_off));
 
-  // print src MAC address
-  printf("src MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-          eth->ether_shost[0], eth->ether_shost[1], eth->ether_shost[2],
-          eth->ether_shost[3], eth->ether_shost[4], eth->ether_shost[5]);
-  // print dst MAC address
-  printf("dst MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-          eth->ether_dhost[0], eth->ether_dhost[1], eth->ether_dhost[2],
-          eth->ether_dhost[3], eth->ether_dhost[4], eth->ether_dhost[5]);
-
-  // print frame length
-  printf("frame length: %d\n", header->caplen);
-
   Flowformat *flowformat = new Flowformat;
   // add the time and other useful information to the flowrecord
   flowformat->srcaddr = 0;  // yes
@@ -647,11 +500,9 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
   if (eth->ether_type == IPv4)
     flowformat = process_ipv4(*header, packet, flowformat);
   else if (eth->ether_type == IPv6) {
-    printf("---- IPv6 ----\n");
+    fprintf(stderr, "---- IPv6 ----\n");  // TODO remove
     return;
   }
-  //    process_ipv6(*header, packet);
-    return;
   printf("\n");
 
   // adding and wexporting netflows done in process_tcp/udp/icmp functions.
@@ -698,20 +549,7 @@ void handle_signal(int signum) {
     pcap_breakloop(pcap);   // break the sniffing loop
 }
 
-/**
- * Function releases all of the allocated resources.
- *
- * @param opts structure that stores command line options
- * @param fp compiled filter
- */
-void release_resources(Options *opts, struct bpf_program fp) {
-  printf("Releasing...\n");
-  pcap_close(pcap);           // global pcap handler
-  pcap_freecode(&fp);         // compiled filter
-  delete opts;             // options structure
 
-  printf("Resources released.\n");
-}
 
 int main(int argc, char *argv[]) {
   int res;                    // variable used for storing results from functions
@@ -719,23 +557,10 @@ int main(int argc, char *argv[]) {
   int link_layer_header_type; // number of link-layer header type
 
   // create opts structure for storing command line options
-  //options_t *opts = (options_t *)malloc(sizeof(options_t));
-  //Options *
   opts = new Options;
-  /*
-  if (opts == nullptr) {
-    fprintf(stderr, "malloc: allocation error\n");
-    return 1;
-  }
-  */
   // load command line options to the opts structure
   if ((res = load_opts(opts, argc, argv)) != 0) {
     // free allocated resources
-    /*
-    if (opts->interface != nullptr)
-      free(opts->interface);
-    free(opts);
-    */
     // if help was printed - return 0
     if (res == 2) {
       print_help();
@@ -745,38 +570,6 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // map: https://www.youtube.com/watch?v=KiB0vRi2wlc&ab_channel=TheCherno
-  //FlowsMap flows;
-  /*
-  flows[std::make_tuple(0, 0, 0, 1, 0, 0)] = flowformat;
-  //auto itr = m.find(std::make_tuple(0,0,0,1,0,0));
-  if (flows.find(std::make_tuple(0,0,0,1,0,0)) != flows.end()) {
-    printf("found\n");
-  } else {
-    printf("not found\n");
-  }
-  if (flows.find(std::make_tuple(0,0,0,0,2,0)) != flows.end()) {
-    printf("found 2\n");
-  } else {
-    printf("not found 2\n");
-  }
-  */
-
-  /*
-  for (auto& kv : m) {
-    auto &k = kv.first;
-    Flowformat& v = kv.second;
-
-    std::cout << k << v << std::endl;
-  }
-  */
-
- // delete member
- // m.erase(std::make_tuple(0,0,0,1,0,0))
-
-
-  printf("command line arguments done\n");
-
   // create SIGINT handler
   struct sigaction sigint_handler;
   sigint_handler.sa_handler = handle_signal;
@@ -785,7 +578,6 @@ int main(int argc, char *argv[]) {
   sigaction(SIGINT, &sigint_handler, nullptr);
 
   // main loop
-  // TODO ve snifferu jsem mela do {} while - kdybych nemela ETHERNET link layer
   // FIXME segfault when pressing ctrl+c while loading stdin
   pcap = pcap_open_offline(opts->file.c_str(), errbuf);
 
@@ -805,44 +597,17 @@ int main(int argc, char *argv[]) {
   }
 
   // create a filter
-  struct bpf_program fp;  // structure used for the compiled filter
-    if (!make_filter(&fp)) {
-        release_resources(opts, fp);
-        return 1;
-    }
-
- 
-
+  if (!make_filter(&fp)) {
+    release_resources();
+    return 1;
+  }
 
   printf("Hnusne zlobive sietocky\n");
-
-  // -------------------------------------------------------------------------------------------
-  // create a netflow packet
-  Netflowhdr netflowhdr;
-  netflowhdr.version = htons(5);        // yes
-  netflowhdr.count = htons(1);          // yes
-  netflowhdr.sys_uptime = 0;            // ?
-  netflowhdr.unix_sec = 0;              // yes
-  netflowhdr.unix_nsecs = 0;            // yes
-  netflowhdr.flow_sequence = 0;         // yes - cislo flow, inkrementace pri generovani flows
-  netflowhdr.engine_type = 0;           // ?
-  netflowhdr.engine_id = 0;             // ?
-  netflowhdr.sampling_interval = 0;     // ?
   
-  // delete member
-  // m.erase(std::make_tuple(0,0,0,1,0,0))
-
-  // -------------------------------------------------------------------------------------------
-  // exporting
-  //int sock;                        // socket descriptor
-  int msg_size = 100;
-  int i;
+  // create a socket for exporting the flows to the collector
   struct sockaddr_in server, client;   // address structures of the server and the client
   struct hostent *servent;         // network host entry required by gethostbyname()
   socklen_t len;        
-  //char buffer[1024];            
-
-  //  Usage: ./flow <address> <port>
 
   memset(&server,0,sizeof(server)); // erase the server structure
   server.sin_family = AF_INET;                   
@@ -869,69 +634,32 @@ int main(int argc, char *argv[]) {
   if (connect(sock, (struct sockaddr *)&server, sizeof(server))  == -1)
     err(1, "connect() failed");
 
- // process opts->num packets -> print information about every packet
+  // socket created, the flows recording and exporting can start
+  // process each frame, export when necessary in export_flow()
   if (pcap_loop(pcap, -1, process_frame, NULL) != 0) {
       // fewer packets were processed
       fprintf(stderr, "pcap_loop: %s\n", strerror(errno));
   }
-  //send data to the server
-  //while((msg_size=read(STDIN_FILENO,buffer,1024)) > 0) 
-      // read input data from STDIN (console) until end-of-line (Enter) is pressed
-      // when end-of-file (CTRL-D) is received, n == 0
-  //{ 
 
-    // iterate through the flows and export each one // TODO export all in one packet
-    // the packets that are left after processing all of the packets in pcap file
-    NetFlowPacket *netflowpacket = new NetFlowPacket;
-    for (auto& kv : flows) {
-      Flowformat& v = kv.second;
+  // export the flows that remained in the flows unordered map after processing the pcap file
+  // iterate through the flows map and export each packet
+  auto key_value = flows.begin();
+  while (key_value != flows.end()) {
+    Flowformat& flowToExport = key_value->second;
+    // export flow
+    export_flow(flowToExport);
 
-      netflowpacket->netflowhdr = netflowhdr;
-      netflowpacket->flowformat = v;
-
-      // delete member
-      // flows.erase(capturedFlow))
-    
-  
-    i = send(sock,netflowpacket,msg_size,0);     // send data to the server
-    if (i == -1)                   // check if data was sent correctly
-      err(1,"send() failed");
-    else if (i != msg_size)
-      err(1,"send(): buffer written partially");
-
+    // TODO remove - just for debugging
     // obtain the local IP address and port using getsockname()
     if (getsockname(sock,(struct sockaddr *) &client, &len) == -1)
       err(1,"getsockname() failed");
-
     printf("* Data sent from %s, port %d (%d) to %s, port %d (%d)\n",inet_ntoa(client.sin_addr), ntohs(client.sin_port), client.sin_port, inet_ntoa(server.sin_addr),ntohs(server.sin_port), server.sin_port);
-    // FIXME the part below is not used probably - it's the response from server
-    // close the socket after the last flow
-    }
 
-    /*
-    // read the answer from the server 
-    if ((i = recv(sock,buffer, 1024,0)) == -1)   
-      err(1,"recv() failed");
-    else if (i > 0){
-      // obtain the remote IP adddress and port from the server (cf. recfrom())
-      if (getpeername(sock, (struct sockaddr *)&client, &fromlen) != 0) 
-	err(1,"getpeername() failed\n");
+    // remove flow from flows
+    key_value = flows.erase(key_value); // do I have to delete the record somehow with delete?
+  }
 
-      printf("* UDP packet received from %s, port %d\n",inet_ntoa(client.sin_addr),ntohs(client.sin_port));
-      printf("%.*s",i,buffer);                   // print the answer
-    }
-    */
-  //} 
-  // reading data until end-of-file (CTRL-D)
-
-  if (msg_size == -1)
-    err(1,"reading failed");
-  close(sock);
-  printf("* Closing the client socket ...\n");
-
-
-
-
-  release_resources(opts, fp);
+  // release the resources, close the pcap and socket and return
+  release_resources();
   return 0;
 }

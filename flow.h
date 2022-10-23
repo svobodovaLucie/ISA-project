@@ -36,6 +36,7 @@ pcap_t *pcap;                    // pcap handler
 u_int32_t flow_seq = 0;          // flow sequence
 // Options *opts;
 int sock;                        // socket descriptor
+struct bpf_program fp;  // structure used for the compiled filter
 
 /**
  * Enumeration used for ether types.
