@@ -2,8 +2,8 @@
  * File:          flow.h
  * Institution:   FIT BUT
  * Academic year: 2022/2023
- * Course:        ISA - Network Applications and Network Administration
- * Author:        Lucie Svobodová, xsvobo1x@stud.fit.vutbr.cz
+ * Course:  ISA - Network Applications and Network Administration
+ * Author:  Lucie Svobodová, xsvobo1x@stud.fit.vutbr.cz
  *
  * ISA project: Generator of NetFlow data from captured network traffic
  */
@@ -22,21 +22,22 @@
 /**
  * Constants used in the programme.
  */
-#define ETH_HEADER_SIZE   14     // size of the Ethernet header (14 bytes)
-#define IPV6_HEADER_SIZE  40     // size of the IPv6 header (40 bytes)
-#define MAX_TIMESTAMP_LEN 22     // max length of timestamp buffer used
-#define FRAME_PRINT_LEN   16     // length of the data to be printed on one line
+#define ETH_HEADER_SIZE   14   // size of the Ethernet header (14 bytes)
+#define IPV6_HEADER_SIZE  40   // size of the IPv6 header (40 bytes)
+#define MAX_TIMESTAMP_LEN 22   // max length of timestamp buffer used
+#define FRAME_PRINT_LEN   16   // length of the data to be printed on one line
 
 /**
  * Global variables used in the programme.
  */
 char errbuf[PCAP_ERRBUF_SIZE];   // buffer used for storing error strings from pcap functions
-int sigint_received;             // variable that indicates if a SIGINT signal was received
-pcap_t *pcap;                    // pcap handler
-u_int32_t flow_seq = 0;          // flow sequence
+int sigint_received;   // variable that indicates if a SIGINT signal was received
+pcap_t *pcap;  // pcap handler
+u_int32_t flow_seq = 0;    // flow sequence
 // Options *opts;
-int sock;                        // socket descriptor
+int sock;  // socket descriptor
 struct bpf_program fp;  // structure used for the compiled filter
+timeval current_time;
 
 /**
  * Enumeration used for ether types.
@@ -55,16 +56,16 @@ enum ip_protocols {ICMPv4 = 1, TCP = 6, UDP = 17, ICMPv6 = 58, NO_NEXT_HEADER = 
  * Structure used for storing command line options.
  */
 struct Options {
-    std::string file = "-";                       // name of the analyzed file
-    //int netflow_collector_address;    // TODO NetFlow collector IP address - bud to nebo hostname
-    std::string netflow_collector = "127.0.0.1";          // TODO NetFlow collector hostname - ukladat jako string jak adresu tak hostname, pak zkusit prevest na ipv4 adresu, pokud nejde, tak na hostname, pokud nejde tak invalid
-    unsigned port = 2055;                    // NetFlow collector UDP port
-    unsigned active_timer = 60;            // active interval
-    unsigned inactive_timer = 10;          // inactive interval
-    unsigned count = 1024;                   // flow-cache size
+  std::string file = "-";     // name of the analyzed file
+  //int netflow_collector_address;  // TODO NetFlow collector IP address - bud to nebo hostname
+  std::string netflow_collector = "127.0.0.1";    // TODO NetFlow collector hostname - ukladat jako string jak adresu tak hostname, pak zkusit prevest na ipv4 adresu, pokud nejde, tak na hostname, pokud nejde tak invalid
+  unsigned port = 2055;  // NetFlow collector UDP port
+  unsigned active_timer = 60;  // active interval
+  unsigned inactive_timer = 10;    // inactive interval
+  unsigned count = 1024;     // flow-cache size
 };
 
-Options *opts;                   // command line options
+Options *opts;     // command line options
 
 // NetFlow protocol struct
 /*
@@ -80,15 +81,15 @@ Bytes	Contents	Description
 22-23	sampling_interval	First two bits hold the sampling mode; remaining 14 bits hold value of sampling interval
 */
 struct Netflowhdr {
-    u_int16_t version;
-    u_int16_t count;
-    u_int32_t sys_uptime;
-    u_int32_t unix_sec;
-    u_int32_t unix_nsecs;
-    u_int32_t flow_sequence;
-    u_int8_t engine_type;
-    u_int8_t engine_id;
-    u_int16_t sampling_interval;
+  u_int16_t version;
+  u_int16_t count;
+  u_int32_t sys_uptime;
+  u_int32_t unix_sec;
+  u_int32_t unix_nsecs;
+  u_int32_t flow_sequence;
+  u_int8_t engine_type;
+  u_int8_t engine_id;
+  u_int16_t sampling_interval;
 };
 
 /*
@@ -116,31 +117,31 @@ Bytes	Contents	Description
 46-47	pad2	Unused (zero) bytes
 */
 struct Flowformat {
-    u_int32_t srcaddr;
-    u_int32_t dstaddr;
-    u_int32_t nexthop;
-    u_int16_t input;
-    u_int16_t output;
-    u_int32_t dPkts;
-    u_int32_t dOctets;
-    u_int32_t first;
-    u_int32_t last;
-    u_int16_t srcport;
-    u_int16_t dstport;
-    u_int8_t pad1;
-    u_int8_t tcp_flags;
-    u_int8_t prot;
-    u_int8_t tos;
-    u_int16_t src_as;
-    u_int16_t dst_as;
-    u_int8_t src_mask;
-    u_int8_t dst_mask;
-    u_int16_t pad2;
+  u_int32_t srcaddr;
+  u_int32_t dstaddr;
+  u_int32_t nexthop;
+  u_int16_t input;
+  u_int16_t output;
+  u_int32_t dPkts;
+  u_int32_t dOctets;
+  u_int32_t first;
+  u_int32_t last;
+  u_int16_t srcport;
+  u_int16_t dstport;
+  u_int8_t pad1;
+  u_int8_t tcp_flags;
+  u_int8_t prot;
+  u_int8_t tos;
+  u_int16_t src_as;
+  u_int16_t dst_as;
+  u_int8_t src_mask;
+  u_int8_t dst_mask;
+  u_int16_t pad2;
 };
 
 struct NetFlowPacket {
-    Netflowhdr netflowhdr;
-    Flowformat flowformat;
+  Netflowhdr netflowhdr;
+  Flowformat flowformat;
 };
 
 /*
@@ -151,24 +152,24 @@ struct NetFlowPacket {
 typedef std::tuple<u_int32_t, u_int32_t, u_int8_t, u_int8_t, u_int16_t, u_int16_t> FlowKey;
 
 struct key_hash : public std::unary_function<FlowKey, std::size_t> {
-    std::size_t operator()(const FlowKey &k) const {
-        u_int32_t srcaddr = std::get<0>(k);
-        u_int32_t dstaddr = std::get<1>(k);
+  std::size_t operator()(const FlowKey &k) const {
+  u_int32_t srcaddr = std::get<0>(k);
+  u_int32_t dstaddr = std::get<1>(k);
 
-        return srcaddr ^ dstaddr ^ std::get<2>(k) ^ 
-               std::get<3>(k) ^ std::get<4>(k) ^ std::get<5>(k); 
-    }
+  return srcaddr ^ dstaddr ^ std::get<2>(k) ^ 
+     std::get<3>(k) ^ std::get<4>(k) ^ std::get<5>(k); 
+  }
 };
 
 struct key_equal : std::binary_function<FlowKey, FlowKey, bool> {
-    bool operator()(FlowKey const& x, FlowKey const& y) const {
-        return ( std::get<0>(x) == std::get<0>(y) &&
-                 std::get<1>(x) == std::get<1>(y) &&
-                 std::get<2>(x) == std::get<2>(y) &&
-                 std::get<3>(x) == std::get<3>(y) &&
-                 std::get<4>(x) == std::get<4>(y) &&
-                 std::get<5>(x) == std::get<5>(y) );
-    }
+  bool operator()(FlowKey const& x, FlowKey const& y) const {
+  return ( std::get<0>(x) == std::get<0>(y) &&
+   std::get<1>(x) == std::get<1>(y) &&
+   std::get<2>(x) == std::get<2>(y) &&
+   std::get<3>(x) == std::get<3>(y) &&
+   std::get<4>(x) == std::get<4>(y) &&
+   std::get<5>(x) == std::get<5>(y) );
+  }
 };
 
 // TODO
