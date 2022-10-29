@@ -52,9 +52,6 @@ void print_help() {
 
 /**
  * Function releases all of the allocated resources.
- *
- * @param opts structure that stores command line options
- * @param fp compiled filter
  */
 void release_resources() {
   fprintf(stderr, "Releasing resources...\n");    // TODO remove
@@ -130,7 +127,7 @@ int load_opts(Options *opts, int argc, char *argv[])
     case 'a':
       try {
         if (std::stoi(optarg) >= 0)
-          opts->active_timer = std::stoi(optarg);
+          opts->active_timer = std::stoi(optarg) * 1000;
         else
           throw std::invalid_argument("");
       } catch (...) {
@@ -143,7 +140,7 @@ int load_opts(Options *opts, int argc, char *argv[])
     case 'i':
       try {
         if (std::stoi(optarg) >= 0)
-          opts->inactive_timer = std::stoi(optarg);
+          opts->inactive_timer = std::stoi(optarg) * 1000;
         else
           throw std::invalid_argument("");
       } catch (...) {
@@ -176,6 +173,18 @@ int load_opts(Options *opts, int argc, char *argv[])
   return 0; // successful
 }
 
+u_int32_t get_sysuptime() {
+  timeval uptime;
+  uptime.tv_sec = current_time.tv_sec - boot_time.tv_sec;
+  uptime.tv_usec = current_time.tv_usec - boot_time.tv_usec;
+  if (uptime.tv_usec < 0) {
+    uptime.tv_sec = uptime.tv_sec - 1;
+    uptime.tv_usec = uptime.tv_usec + 1000000;
+  }
+  
+  return (u_int32_t)(uptime.tv_sec * 1000 + uptime.tv_usec / 1000);
+}
+
 int export_flow(Flowformat flow_to_export) {
   // export flow
   // create a netflow packet to send
@@ -184,9 +193,9 @@ int export_flow(Flowformat flow_to_export) {
   Netflowhdr netflowhdr;
   netflowhdr.version = htons(5);        // yes
   netflowhdr.count = htons(1);          // yes
-  netflowhdr.sys_uptime = htonl(flow_to_export.first);            // milliseconds - okay? + is htonl okay? - should be probably first not last
-  netflowhdr.unix_sec = htonl(flow_to_export.first);              // yes
-  netflowhdr.unix_nsecs = htonl(flow_to_export.nexthop * 1000);            // yes
+  netflowhdr.sys_uptime = htonl(get_sysuptime());            // milliseconds - okay? + is htonl okay? - should be probably first not last
+  netflowhdr.unix_sec = htonl(current_time.tv_sec);   // FIXME spatne - musi to byt z first!!!
+  netflowhdr.unix_nsecs = htonl(current_time.tv_usec * 1000);            // yes
   netflowhdr.flow_sequence = htonl(flow_seq);  // yes - cislo flow, inkrementace pri generovani flows
   flow_seq++;                           
   netflowhdr.engine_type = 0;           // ?
@@ -204,7 +213,7 @@ int export_flow(Flowformat flow_to_export) {
   flow_to_export.dPkts = htonl(flow_to_export.dPkts);
   netflowpacket->flowformat = flow_to_export;    // do I have to memcpy or sth like that?
   // send the flow
-  int msg_size = 72; // FIXME how many
+  int msg_size = NETFLOW_PACKET_SIZE;
 
   int i = send(sock,netflowpacket, msg_size,0);     // send data to the server
   
@@ -237,8 +246,8 @@ int record_flow(Flowformat *flow) {
   while (key_value != flows.end()) {
     Flowformat& flowsIterator = key_value->second;
     // active and inactive timer check + export
-    if (current_time.tv_sec - flowsIterator.first > opts->active_timer /* TODO check seconds and type */
-        || current_time.tv_sec - flowsIterator.last > opts->inactive_timer) {
+    if (get_sysuptime() - flowsIterator.first > opts->active_timer /* TODO check seconds and type */
+        || get_sysuptime() - flowsIterator.last > opts->inactive_timer) {
       // export flow
       export_flow(flowsIterator);
       // remove flow from flows
@@ -250,7 +259,7 @@ int record_flow(Flowformat *flow) {
 
   // cache size (count) check + export
   if (flows.size() >= opts->count) {
-    u_int32_t min = 765746355;  // FIXME: use now() function for getting the current time - it will be the maximum every time or use the time of the first packet
+    u_int32_t min = get_sysuptime() + 1;  // FIXME: use now() function for getting the current time - it will be the maximum every time or use the time of the first packet
     FlowKey toRemove;           // packet with the minimal value -> the one to be removed
     // iterate through the flows to get the oldest one
     for (auto& key_value : flows) {
@@ -281,7 +290,7 @@ int record_flow(Flowformat *flow) {
   }
   
   // check for the end of the TCP connection (FIN (1) or RST (4) flag)
-  // if check tcp fin flag)        
+  // if check tcp fin flag     
   if (flow->prot == TCP){
     if (((flow->tcp_flags & 1) > 0) || ((flow->tcp_flags & 4) > 0)) {
       // end of tcp connection -> export the flow
@@ -358,16 +367,6 @@ Flowformat *process_icmp(struct pcap_pkthdr header, const u_char *packet, unsign
   // cast to icmphdr structure
   struct icmphdr *icmp = (struct icmphdr *)(packet + header_length);
 
-  // TODO port from code and type
-  // print type, code, checksum and frame data
-  if (icmp->type == 0)
-      printf("type: 0 (Echo reply)\n");
-  else if (icmp->type == 8)
-      printf("type: 8 (Echo request)\n");
-  else
-      printf("type: %d\n", icmp->type);
-  printf("code: %d\n", icmp->code);
-
   // update the flowformat record with the info found in ipv4 protocol
   flowformat->input = 0;                                   // no
   flowformat->output = 0;                                  // no
@@ -431,26 +430,29 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
   // create an ethernet header structure
   struct ether_header *eth = (struct ether_header *)(packet);
 
+  if (boot_time.tv_sec == 0) {
+    //it is the first packet now -> set boot time
+    boot_time.tv_sec = header->ts.tv_sec;
+    boot_time.tv_usec = header->ts.tv_usec;
+  }
+
   // set current time
   current_time.tv_sec = header->ts.tv_sec;          // seconds
-  current_time.tv_usec = header->ts.tv_usec;        // residual nanoseconds
+  current_time.tv_usec = header->ts.tv_usec;        // residual microseconds
 
   Flowformat *flowformat = new Flowformat;
 
   // add the time and other useful information to the flowrecord
   flowformat->srcaddr = 0;  // yes
   flowformat->dstaddr = 0; // std::get<1>(capturedFlow).s_addr;  // yes
-  //flowformat->nexthop = 0;                                 // no OK
-  // TODO use nexthop as usec storage and before export set it to 0
+  flowformat->nexthop = 0;                                 // no OK
   flowformat->input = 0;                                   // no
   flowformat->output = 0;                                  // no
   flowformat->dPkts = 1;                            // yes - one packet currently
   flowformat->dOctets = 0;                                 // yes - suma header length - Layer 3 bytes in packets - which bytes are computed?
   // save times without htonl and htonl() them before export
-  flowformat->first = header->ts.tv_sec;            // yes - SysUptime at start of flow -> time in the first packet of the flow hopefully? FIXME
-  // TODO use nexthop as usec storage and before export set it to 0
-  flowformat->nexthop = header->ts.tv_usec;                                 // no OK
-  flowformat->last = header->ts.tv_sec;             // yes - same as .first -> if this the only packet I think this is right
+  flowformat->first = get_sysuptime();;            // yes - SysUptime at start of flow -> time in the first packet of the flow hopefully? FIXME                               // no OK
+  flowformat->last = flowformat->first;             // yes - same as .first -> if this the only packet I think this is right
   flowformat->srcport = 0; //htons(std::get<4>(capturedFlow));  // yes
   flowformat->dstport = 0; //htons(std::get<5>(capturedFlow));  // yes
   flowformat->pad1 = 0;                                    // no OK
@@ -520,6 +522,7 @@ int main(int argc, char *argv[]) {
   int res;                    // variable used for storing results from functions
   sigint_received = 0;        // global variable - 0 means SIGINT signal wasn't caught
   int link_layer_header_type; // number of link-layer header type
+  //boot_time = 0;
 
   // create opts structure for storing command line options
   opts = new Options;
@@ -601,23 +604,17 @@ int main(int argc, char *argv[]) {
   // export the flows that remained in the flows unordered map after processing the pcap file
   while (!flows.empty()) {
     // find minimum
-    u_int32_t min = current_time.tv_sec + 1;  // FIXME: use now() function for getting the current time - it will be the maximum every time or use the time of the first packet
-    u_int32_t min_usec = current_time.tv_usec + 1;
+    u_int32_t min = get_sysuptime() + 1;
     FlowKey toRemove;           // packet with the minimal value -> the one to be removed
-    // iterate through the flows to get the oldest one
+    // iterate through tfhe flows to get the oldest one
+    printf("curr+1: %d\n", min);
     for (auto& key_value : flows) {
       if (key_value.second.first < min) {
         min = key_value.second.first;
-        min_usec = key_value.second.nexthop;
         toRemove = key_value.first;
-      } else if (key_value.second.first == min) {
-        if (key_value.second.nexthop < min_usec) {
-          min = key_value.second.first;
-          min_usec = key_value.second.nexthop;
-          toRemove = key_value.first;
-        }
-      }
+     }
     }
+    printf("min = %d\n", min);
     // export the flow
     export_flow(flows[toRemove]);
 

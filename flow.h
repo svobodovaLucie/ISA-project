@@ -22,10 +22,11 @@
 /**
  * Constants used in the programme.
  */
-#define ETH_HEADER_SIZE   14   // size of the Ethernet header (14 bytes)
-#define IPV6_HEADER_SIZE  40   // size of the IPv6 header (40 bytes)
-#define MAX_TIMESTAMP_LEN 22   // max length of timestamp buffer used
-#define FRAME_PRINT_LEN   16   // length of the data to be printed on one line
+#define ETH_HEADER_SIZE     14   // size of the Ethernet header (14 bytes)
+#define IPV6_HEADER_SIZE    40   // size of the IPv6 header (40 bytes)
+#define MAX_TIMESTAMP_LEN   22   // max length of timestamp buffer used
+#define FRAME_PRINT_LEN     16   // length of the data to be printed on one line
+#define NETFLOW_PACKET_SIZE 72   // number of bytes in NetFlow packet
 
 /**
  * Global variables used in the programme.
@@ -38,6 +39,7 @@ u_int32_t flow_seq = 0;    // flow sequence
 int sock;  // socket descriptor
 struct bpf_program fp;  // structure used for the compiled filter
 timeval current_time;
+timeval boot_time;    // TODO is 64 safe to use?
 
 /**
  * Enumeration used for ether types.
@@ -60,8 +62,8 @@ struct Options {
   //int netflow_collector_address;  // TODO NetFlow collector IP address - bud to nebo hostname
   std::string netflow_collector = "127.0.0.1";    // TODO NetFlow collector hostname - ukladat jako string jak adresu tak hostname, pak zkusit prevest na ipv4 adresu, pokud nejde, tak na hostname, pokud nejde tak invalid
   unsigned port = 2055;  // NetFlow collector UDP port
-  unsigned active_timer = 60;  // active interval
-  unsigned inactive_timer = 10;    // inactive interval
+  unsigned active_timer = 60000;  // active interval in milliseconds
+  unsigned inactive_timer = 10000;    // inactive interval in milliseconds
   unsigned count = 1024;     // flow-cache size
 };
 
