@@ -20,7 +20,6 @@
 #include <netinet/tcp.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/udp.h>
-#include <err.h>
 #include <netdb.h>
 
 /**
@@ -538,9 +537,9 @@ bool make_filter(struct bpf_program *fp) {
  * @param signum signal identifier required by handler function, not used
  */
 void handle_signal(int signum) {
-    (void)signum;           // signum is not used here -> remove compiler warning
-    sigint_received = 1;    // indicates that SIGINT was received
-    pcap_breakloop(pcap);   // break the sniffing loop
+  (void)signum;           // signum is not used here -> remove compiler warning
+  sigint_received = 1;    // indicates that SIGINT was received
+  pcap_breakloop(pcap);   // break the sniffing loop
 }
 
 /**
@@ -573,18 +572,10 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // create SIGINT handler
-  struct sigaction sigint_handler;
-  sigint_handler.sa_handler = handle_signal;
-  sigemptyset(&sigint_handler.sa_mask);
-  sigint_handler.sa_flags = 0;
-  sigaction(SIGINT, &sigint_handler, nullptr);
-
-  // FIXME segfault when pressing ctrl+c while loading stdin
   // open pcap file
   pcap = pcap_open_offline(opts->file.c_str(), errbuf);
   if (pcap == nullptr) {
-    fprintf(stderr, "pcap_open_offline: %s", errbuf);
+    fprintf(stderr, "pcap_open_offline() failed: %s", errbuf);
     delete opts;
     return 1;
   }
@@ -632,6 +623,13 @@ int main(int argc, char *argv[]) {
     return 1;
   }      
   // socket created, the flows recording and exporting can start
+
+  // create SIGINT handler
+  struct sigaction sigint_handler;
+  sigint_handler.sa_handler = handle_signal;
+  sigemptyset(&sigint_handler.sa_mask);
+  sigint_handler.sa_flags = 0;
+  sigaction(SIGINT, &sigint_handler, nullptr);
 
   // process each frame, export when necessary in export_flow()
   if (pcap_loop(pcap, -1, process_frame, NULL) != 0) {

@@ -35,7 +35,9 @@ enum ip_protocols {ICMPv4 = 1, TCP = 6, UDP = 17};
 
 /**
  * Structure for NetFlow header.
- * NetFlow header: https://netflow.caligare.com/netflow_v5.htm
+ * NetFlow header: Cisco Systems, Inc. (2017). Table B-3:
+ * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html
+ *                 
  * 
  * Bytes	  Contents	          Description
  * ------------------------------------------------------------------------------------------
@@ -63,7 +65,8 @@ struct Netflowhdr {
 
 /**
  * Structure for flow record.
- * NetFlow record: https://netflow.caligare.com/netflow_v5.htm
+ * NetFlow record: Cisco Systems, Inc. (2017). Table B-4:
+ * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html
  * 
  * FLOW     RECORD      FORMAT
  ------------------------------------------------------------------------------------------
