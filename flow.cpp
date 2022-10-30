@@ -173,6 +173,18 @@ int load_opts(Options *opts, int argc, char *argv[])
   return 0; // successful
 }
 
+void print_flow (Flowformat flow) {
+  struct in_addr ip_addr;
+  ip_addr.s_addr = flow.srcaddr;
+  std::cout << "srcaddr: " << inet_ntoa(ip_addr) << std::endl;
+  ip_addr.s_addr = flow.dstaddr;
+  std::cout << "srcaddr: " << inet_ntoa(ip_addr) << std::endl;
+  std::cout << "sport: " << ntohs(flow.srcport) << std::endl;
+  std::cout << "dport: " << ntohs(flow.dstport) << std::endl;
+  //std::cout << "proto: " << flow.prot << std::endl;
+  //std::cout << "tos: " << flow.tos << std::endl;
+}
+
 u_int32_t get_sysuptime() {
   timeval uptime;
   uptime.tv_sec = current_time.tv_sec - boot_time.tv_sec;
@@ -264,10 +276,25 @@ int record_flow(Flowformat *flow) {
     // iterate through the flows to get the oldest one
     for (auto& key_value : flows) {
       if (key_value.second.first < min) {
+        if (min == (get_sysuptime() + 1)) {
+          // toRemove is not set yet
+          min = key_value.second.first;
+          toRemove = key_value.first;
+          continue;
+        }
         min = key_value.second.first;
         toRemove = key_value.first;
+      } else if (key_value.second.first ==  min) {
+        if (key_value.second.nexthop < flows[toRemove].nexthop) {
+          min = key_value.second.first;
+          toRemove = key_value.first;
+        }
       }
     }
+
+    printf("REMOVING FLOW - cache size:\n");
+    print_flow(flows[toRemove]);
+
     // export the flow
     export_flow(flows[toRemove]);
 
@@ -445,7 +472,7 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
   // add the time and other useful information to the flowrecord
   flowformat->srcaddr = 0;  // yes
   flowformat->dstaddr = 0; // std::get<1>(capturedFlow).s_addr;  // yes
-  flowformat->nexthop = 0;                                 // no OK
+  flowformat->nexthop = header->ts.tv_usec;   // just to store microsec for exporting          // no OK
   flowformat->input = 0;                                   // no
   flowformat->output = 0;                                  // no
   flowformat->dPkts = 1;                            // yes - one packet currently
@@ -607,14 +634,26 @@ int main(int argc, char *argv[]) {
     u_int32_t min = get_sysuptime() + 1;
     FlowKey toRemove;           // packet with the minimal value -> the one to be removed
     // iterate through tfhe flows to get the oldest one
-    printf("curr+1: %d\n", min);
     for (auto& key_value : flows) {
       if (key_value.second.first < min) {
+        if (min == (get_sysuptime() + 1)) {
+          // toRemove is not set yet
+          min = key_value.second.first;
+          toRemove = key_value.first;
+          continue;
+        }
         min = key_value.second.first;
         toRemove = key_value.first;
-     }
+      } else if (key_value.second.first ==  min) {
+        if (key_value.second.nexthop < flows[toRemove].nexthop) {
+          min = key_value.second.first;
+          toRemove = key_value.first;
+        }
+      }
     }
-    printf("min = %d\n", min);
+    printf("REMOVING FLOW - end:\n");
+    print_flow(flows[toRemove]);
+
     // export the flow
     export_flow(flows[toRemove]);
 
