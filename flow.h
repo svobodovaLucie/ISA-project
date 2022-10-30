@@ -23,9 +23,6 @@
  * Constants used in the programme.
  */
 #define ETH_HEADER_SIZE     14   // size of the Ethernet header (14 bytes)
-#define IPV6_HEADER_SIZE    40   // size of the IPv6 header (40 bytes)
-#define MAX_TIMESTAMP_LEN   22   // max length of timestamp buffer used
-#define FRAME_PRINT_LEN     16   // length of the data to be printed on one line
 #define NETFLOW_PACKET_SIZE 72   // number of bytes in NetFlow packet
 
 /**
@@ -45,13 +42,13 @@ timeval boot_time;    // TODO is 64 safe to use?
  * Enumeration used for ether types.
  * List of ether types: https://en.wikipedia.org/wiki/EtherType
  */
-enum ether_types {IPv4 = 0x0800, ARP = 0x0806, IPv6 = 0x86DD};
+enum ether_types {IPv4 = 0x0800};
 
 /**
  * Enumeration used for IP protocols.
  * List of IP protocols: https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
  */
-enum ip_protocols {ICMPv4 = 1, TCP = 6, UDP = 17, ICMPv6 = 58, NO_NEXT_HEADER = 59};
+enum ip_protocols {ICMPv4 = 1, TCP = 6, UDP = 17};
 
 
 /**
@@ -148,7 +145,6 @@ struct NetFlowPacket {
 
 /*
  * Tuple for netflow record used as a key in map.
- * FIXME: SrcIf - source interface - how to get/store it?
  * SrcIPadd, DstIPadd, Proto, ToS, SrcPort, DstPort
  */
 typedef std::tuple<u_int32_t, u_int32_t, u_int8_t, u_int8_t, u_int16_t, u_int16_t> FlowKey;
@@ -165,12 +161,12 @@ struct key_hash : public std::unary_function<FlowKey, std::size_t> {
 
 struct key_equal : std::binary_function<FlowKey, FlowKey, bool> {
   bool operator()(FlowKey const& x, FlowKey const& y) const {
-  return ( std::get<0>(x) == std::get<0>(y) &&
-   std::get<1>(x) == std::get<1>(y) &&
-   std::get<2>(x) == std::get<2>(y) &&
-   std::get<3>(x) == std::get<3>(y) &&
-   std::get<4>(x) == std::get<4>(y) &&
-   std::get<5>(x) == std::get<5>(y) );
+  return (std::get<0>(x) == std::get<0>(y) &&
+          std::get<1>(x) == std::get<1>(y) &&
+          std::get<2>(x) == std::get<2>(y) &&
+          std::get<3>(x) == std::get<3>(y) &&
+          std::get<4>(x) == std::get<4>(y) &&
+          std::get<5>(x) == std::get<5>(y));
   }
 };
 

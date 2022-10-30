@@ -17,7 +17,6 @@
 #include <pcap.h>
 #include <arpa/inet.h>
 #include <netinet/if_ether.h>
-#include <netinet/ip6.h>
 #include <netinet/tcp.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/udp.h>
@@ -64,112 +63,82 @@ void release_resources() {
 }
 
 /**
- * Function loads command line options into opts structure using getopt_long() function.
+ * Function loads command line options into opts structure using getopt() function.
+ * The opts structure is already initialised with default values.
  *
  * @return 0 if successful, 1 if an error occurred, 2 if the help option is present
  */
-int load_opts(Options *opts, int argc, char *argv[])
-{
-  // allocate size for the netflow_collector argument
-  /*
-  opts->netflow_collector = (char *)calloc(260, 1); // max number of characters for a hostname is 253 + port 5 chars
-  if (opts->netflow_collector == std::nullptr)
-  {
-    // TODO error
-    return 1;
-  }
-  */
-  std::string tmp;
-  //int tmp_port;
-  //  the struct is already initialised with the default values
+int load_opts(Options *opts, int argc, char *argv[]) {
+  std::string tmp;    // string used for string operations
+  int res;            // variable stores the result of getopt() function
   
-  // define variables used in getopt_long() function
-  opterr = 0; // suppress default error messages
   // parse the command line options using getopt() function
-  int res;
-  while ((res = getopt(argc, argv, ":f:c:a:i:m:h")) != -1) { // TODO port nse nezapisuje jako p, ale je soucasti c za :xxxx
-    // while ((res = getopt_long(argc, argv, optstring, longopts, &longindex)) != -1) {
-    //  TODO check aby neproslo napr. -m 76565y (ted projde)
+  while ((res = getopt(argc, argv, ":f:c:a:i:m:h")) != -1) {
     switch (res) {
-    case 'h': // help
-      // help will be printed in main() - returns 2
-      return 2;
-    case 'f': // file
-      // copy optarg to opts->file
-      opts->file.resize(0);
-      opts->file.append(optarg);
-
-      std::cout << "f: " << opts->file << std::endl;
-      break;
-    case 'c':
-      tmp.resize(260);
-      tmp = optarg;
-      // check address/hostname format
-      opts->netflow_collector.resize(0);
-      opts->netflow_collector.append(tmp.substr(0, tmp.find_last_of(":")));   // address[hostname]
-      // port number
-      tmp = tmp.substr(tmp.find_last_of(":") + 1);
-      try {
-        if (std::stoi(tmp) >= 0)
-          opts->port = std::stoi(tmp);
-        else
-          throw std::invalid_argument("");
-      } catch (...) {
-        fprintf(stderr, "invalid port number\n");
-        delete opts;  // FIXME release_resources
+      case 'h':   // help (help is printed in main() -> return 2)
+        return 2;
+      case 'f':   // file
+        // copy optarg to opts->file
+        opts->file.resize(0);
+        opts->file.append(optarg);
+        break;
+      case 'c':   // collector
+        tmp.resize(260);
+        tmp = optarg;
+        // check address/hostname format
+        opts->netflow_collector.resize(0);
+        opts->netflow_collector.append(tmp.substr(0, tmp.find_last_of(":")));   // address[hostname]
+        // port number
+        tmp = tmp.substr(tmp.find_last_of(":") + 1);
+        try {     // port: convert string to number
+          if (std::stoi(tmp) >= 0)
+            opts->port = std::stoi(tmp);
+          else
+            throw std::invalid_argument("");
+        } catch (...) {
+          fprintf(stderr, "invalid port number\n");
+          return 1;
+        }
+        break;
+      case 'a':   // active timer
+        try {     // convert string to number
+          if (std::stoi(optarg) >= 0)
+            opts->active_timer = std::stoi(optarg) * 1000;    // convert seconds to milliseconds
+          else
+            throw std::invalid_argument("");
+        } catch (...) {
+          fprintf(stderr, "invalid number in option -a\n");
+          return 1;
+        }
+        printf("-a: %u\n", opts->active_timer);
+        break;
+      case 'i':   // inactive timer
+        try {     // convert string to number
+          if (std::stoi(optarg) >= 0)
+            opts->inactive_timer = std::stoi(optarg) * 1000;  // convert seconds to milliseconds
+          else
+            throw std::invalid_argument("");
+        } catch (...) {
+          fprintf(stderr, "invalid number in option -i\n");
+          return 1;
+        }
+        break;
+      case 'm':   // flow-cache size
+        try {     // convert string to number
+          if (std::stoi(optarg) >= 0)
+            opts->count = std::stoi(optarg);
+          else
+            throw std::invalid_argument("");
+        } catch (...) {
+          fprintf(stderr, "invalid number in option -m\n");
+          return 1;
+        }
+        break;
+      default: // unknown command line option
+        fprintf(stderr, "error in command line options (see -h for help)\n");
         return 1;
-      }
-      
-      std::cout << "opts->netflow: " << opts->netflow_collector << "\n";
-      std::cout << "opts->port: " << opts->port << "\n";
-
-      break;
-    case 'a':
-      try {
-        if (std::stoi(optarg) >= 0)
-          opts->active_timer = std::stoi(optarg) * 1000;
-        else
-          throw std::invalid_argument("");
-      } catch (...) {
-        fprintf(stderr, "invalid number in option -a\n");
-        delete opts;  // FIXME release_resources
-        return 1;
-      }
-      printf("-a: %u\n", opts->active_timer);
-      break;
-    case 'i':
-      try {
-        if (std::stoi(optarg) >= 0)
-          opts->inactive_timer = std::stoi(optarg) * 1000;
-        else
-          throw std::invalid_argument("");
-      } catch (...) {
-        fprintf(stderr, "invalid number in option -i\n");
-        delete opts;  // FIXME release_resources
-        return 1;
-      }
-      printf("-i: %u\n", opts->inactive_timer);
-      break;
-    case 'm': //
-      try {
-        if (std::stoi(optarg) >= 0)
-          opts->count = std::stoi(optarg);
-        else
-          throw std::invalid_argument("");
-      } catch (...) {
-        fprintf(stderr, "invalid number in command line options\n");
-        delete opts;  // FIXME release_resources
-        return 1;
-      }
-      printf("-m: %u\n", opts->count);
-      break;
-    default: // unknown command line option
-      printf("error in command line options (see -h or --help for help)\n");
-      delete opts;  // FIXME release_resources
-      return 1;
     }
   }
-
   return 0; // successful
 }
 
@@ -497,10 +466,6 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
   // process and print the packet
   if (eth->ether_type == IPv4)
     flowformat = process_ipv4(*header, packet, flowformat);
-  else if (eth->ether_type == IPv6) {
-    fprintf(stderr, "---- IPv6 ----\n");  // TODO remove
-    return;
-  }
 
   // adding and wexporting netflows done in process_tcp/udp/icmp functions.
   delete flowformat;
@@ -562,6 +527,7 @@ int main(int argc, char *argv[]) {
       return 0;
     }
     // error occurred - return 1
+    delete opts;
     return 1;
   }
 
