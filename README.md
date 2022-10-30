@@ -7,7 +7,6 @@ Course: ISA - Network Applications and Network Administration
 NetFlow exporter for creating flows from network traffic (.pcap files) and exporting them to the collector. NetFlow version 5 is used. The application is implemented in C++ language using the Packet Capture library ([PCAP](https://www.tcpdump.org/)).
 
 
-
 ### Build
 
 Before building the project make sure you have installed The Packet Capture library (see [libpcap](https://www.tcpdump.org/)).  
@@ -59,58 +58,28 @@ $ ./flow -f 1.pcap
 # NetFlow packets are sent to 127.0.0.1:2078
 $ ./flow -f 1.pcap -c 127.0.0.1:2078 -m 100
 
-# creates flows from STDIN input, maximal number of flows in the cache is 256, active timer is set to 50, 
-# inactive timer is set to 10
+# creates flows from STDIN input, maximal number of flows in the cache is 256, active timer is set to 50 s, 
+# inactive timer is set to 10 s
 $ ./flow -a 50 -i 10 -m 256
 ```
 
 ### Example output
+Exported flows can be printed by various programs, e.g. [nfdump](https://nfdump.sourceforge.net/). 
 Packet sniffer prints information about sniffed packets - timestamp, source and destination MAC and IP addresses,
 source and destination ports if available, frame lengths, information specific for the protocols and all the frame data.  
 ```shell
-# prints all available interfaces
-$ ./ipk-sniffer -i
-wlo1
-lo
-any
-bluetooth-monitor
-nflog
-nfqueue
-bluetooth0
-
-# prints two packets sniffed on interface wlo1 on port 80
-$ ./ipk-sniffer -i wlo1 -n 2 -p 443
-2022-04-24T10:49:26.626+02.00
-src MAC: 62:32:b1:09:04:6b
-dst MAC: ff:ff:ff:ff:ff:ff
-frame length: 56
-protocol: ARP
-opcode: 1 (request)
-sender MAC address: 62:32:b1:09:04:6b
-sender IP address: 192.168.0.17
-target MAC address: 00:00:00:00:00:00
-target IP address: 192.168.0.1
-0x0000:  ff ff ff ff ff ff 62 32  b1 09 04 6b 06 08 00 01  ......b2 ...k.... 
-0x0010:  08 00 06 04 01 00 62 32  b1 09 04 6b c0 a8 00 11  ......b2 ...k.... 
-0x0020:  00 00 00 00 00 00 c0 a8  00 01 00 00 00 00 00 00  ........ ........ 
-0x0030:  00 00 00 00 00 00 00 00                           ........
-
-2022-04-24T10:49:29.392+02.00
-src MAC: dc:53:7c:27:9f:48
-dst MAC: c0:3c:59:cf:34:33
-frame length: 93
-src IP: 34.120.52.64
-dst IP: 192.168.0.110
-protocol: TCP
-src port: 443
-dst port: 43098
-checksum: 0xf546
-0x0000:  c0 3c 59 cf 34 33 dc 53  7c 27 9f 48 00 08 45 00  .<Y.43.S |'.H..E. 
-0x0010:  00 4f 14 dd 00 00 78 06  15 fe 22 78 34 40 c0 a8  .O....x. .."x4@.. 
-0x0020:  00 6e 01 bb a8 5a f8 ee  6a 1b 79 0e 61 c1 80 18  .n...Z.. j.y.a... 
-0x0030:  04 1a f5 46 00 00 01 01  08 0a 5e e7 6a b8 d1 8a  ...F.... ..^.j... 
-0x0040:  2b 90 17 03 03 00 16 89  fe 5c 81 6d 14 09 b7 a4  +....... .\.m.... 
-0x0050:  6f 65 b5 20 8a 31 76 fb 59 92 e3 75 d8            oe. .1v. Y..u.
+# ./flow -f pcaps/big.pcap -c 127.0.0.1:2787 -i 5 -a 10 -m 10
+# flows exported by the command above are stored in nfcapd.202210300215 file
+$ nfdump -r nfcapd.202210300215     # output from nfdump
+Date first seen          Event  XEvent Proto      Src IP Addr:Port          Dst IP Addr:Port     X-Src IP Addr:Port        X-Dst IP Addr:Port   In Byte Out Byte
+2022-10-06 13:55:27.120 INVALID  Ignore UDP     100.64.205.216:54915 ->   100.64.223.255:54915          0.0.0.0:0     ->          0.0.0.0:0          582        0
+2022-10-06 13:55:27.266 INVALID  Ignore TCP     100.64.208.103:40988 ->     147.229.2.90:443            0.0.0.0:0     ->          0.0.0.0:0          279        0
+2022-10-06 13:55:27.269 INVALID  Ignore TCP       147.229.2.90:443   ->   100.64.208.103:40988          0.0.0.0:0     ->          0.0.0.0:0         1176        0
+2022-10-06 13:55:27.424 INVALID  Ignore UDP     100.64.192.180:54915 ->   100.64.223.255:54915          0.0.0.0:0     ->          0.0.0.0:0          291        0
+2022-10-06 13:55:27.736 INVALID  Ignore UDP     100.64.199.189:57621 ->   100.64.223.255:57621          0.0.0.0:0     ->          0.0.0.0:0           72        0
+Summary: total flows: 5, total bytes: 2400, total packets: 16
+Time window: 2022-10-06 13:55:27 - 2022-10-06 13:55:28
+Total flows processed: 5, Blocks skipped: 0
 ```
 
 ### Licence
