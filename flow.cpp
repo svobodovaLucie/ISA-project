@@ -23,6 +23,9 @@
 #include <err.h>
 #include <netdb.h>
 
+/**
+ * Function prints help to the standard output.
+ */
 void print_help() {
   printf("Generator of NetFlow data from captured network traffic.\n"
     "Usage:\n"
@@ -552,7 +555,6 @@ void handle_signal(int signum) {
  * @return 0 if the program ends successfully
  *         1 if an error occurred
  */
-
 int main(int argc, char *argv[]) {
   int res;                    // variable used for storing results from functions
   sigint_received = 0;        // global variable - 0 means SIGINT signal wasn't caught
