@@ -8,6 +8,10 @@
  * ISA project: Generator of NetFlow data from captured network traffic
  */
 
+
+
+// TODO valgrind ./flow -> memcheck
+
 #include "flow.h"
 #include <iostream>
 #include <getopt.h>
@@ -209,6 +213,9 @@ int export_flow(Flowformat flow_to_export) {
   netflowpacket->netflowhdr = netflowhdr;
   netflowpacket->flowformat = flow_to_export;
 
+  printf("EXPORTING FLOW, flow sequence: %d:\n", flow_seq - 1);    // TODO remove
+  print_flow(flow_to_export);                // TODO remove
+
   // send the flow to the collector
   int res = send(sock, netflowpacket, NETFLOW_PACKET_SIZE, 0);  // send data to the server
   delete netflowpacket;
@@ -225,24 +232,50 @@ int export_flow(Flowformat flow_to_export) {
  * @return 0 if successful, 1 if an error occurred
  */
 int check_timers() {
-  // iterate through all flows and check active and inactive timers
-  auto key_value = flows.begin();
-  while (key_value != flows.end()) {
-    Flowformat& flowsIterator = key_value->second;
-    // active and inactive timer check
-    if (get_sysuptime() - flowsIterator.first > opts->active_timer
-        || get_sysuptime() - flowsIterator.last > opts->inactive_timer) {
-      // export flow
-      if (export_flow(flowsIterator) != 0) {  // error check
+  bool packet_to_export = true;
+  u_int32_t min = get_sysuptime() + 1;  // initial value for minimum
+  FlowKey toRemove;                     // packet with the minimal value
+
+  while (packet_to_export && flows.size() != 0) {
+    packet_to_export = false; // in this round we do not have any packet to export
+    for (auto& key_value : flows) {
+      // check timers
+      if (get_sysuptime() - key_value.second.first > opts->active_timer
+          || get_sysuptime() - key_value.second.last > opts->inactive_timer) {
+        // timer vyprsel -> zkontrolovat min TODO
+        if (key_value.second.first < min) {
+          // sekundy jsou mensi -> pohoda je to mensi TODO
+          min = key_value.second.first;
+          toRemove = key_value.first;
+          packet_to_export = true;
+        } else if (key_value.second.first == min) {
+          // porovnat mikrosekundy - ulozeny v nexthop TODO
+          if (key_value.second.nexthop < flows[toRemove].nexthop) {
+            min = key_value.second.first;
+            toRemove = key_value.first;
+            packet_to_export = true;
+          }
+        }
+      }
+    } // for
+    if (packet_to_export) {
+      // export packet
+      if (get_sysuptime() - flows[toRemove].first > opts->active_timer) {
+        printf("REMOVING FLOW - timer ACTIVE\n");
+      } else if (get_sysuptime() - flows[toRemove].last > opts->inactive_timer) {
+        printf("REMOVING FLOW - timer INACTIVE\n");
+      } else {
+        printf("REMOVING FLOW - timer idk\n");
+      }
+      if (export_flow(flows[toRemove]) != 0) {  // error check
         return 1;
       }
       // remove flow from flows
-      key_value = flows.erase(key_value);     // update the iterator
-    } else {
-      key_value++;                            // increment the iterator
+      flows.erase(toRemove);
+      printf("ERASEN %d\n", flow_seq);
     }
-  }
-  return 0;   // success
+  } // while
+  return 0; // TODO budu nekde vracet 1?
 }
 
 /**
@@ -284,12 +317,13 @@ FlowKey get_the_oldest_flow() {
  * @return 0 if successful, 1 if an error occurred
  */
 int check_cache_size() {
+  printf("cache size: %ld\n", flows.size());
   if (flows.size() >= opts->count) {
     // find the oldest flow
-    FlowKey toRemove = get_the_oldest_flow();
+    FlowKey toRemove = get_the_oldest_flow();   // FIXME what if there are no flows?
 
-    printf("REMOVING FLOW - cache size:\n");    // TODO remove
-    print_flow(flows[toRemove]);                // TODO remove
+    printf("REMOVING FLOW - cache size: %ld\n", flows.size());    // TODO remove
+    //print_flow(flows[toRemove]);                // TODO remove
 
     // export the flow
     if (export_flow(flows[toRemove]) != 0) {    // error check
@@ -317,16 +351,37 @@ void record_flow(Flowformat *flow) {
     exit(1);
   }
 
-  // cache size (count) check
-  if (check_cache_size() != 0) {
-    delete flow;
-    release_resources();
-    exit(1);
-  }
+
 
   // create the key of the current flow
   FlowKey capturedFlow = std::make_tuple(flow->srcaddr, flow->dstaddr, flow->prot, 
                                           flow->tos, flow->srcport, flow->dstport);
+
+  // TODO zkontrolovat nejdrive TCP FIN a RST a az potom cache size
+
+  
+
+  // check for the end of the TCP connection (FIN (1) or RST (4) flag)
+  if (flow->prot == TCP && opts->count != 0){
+    if (((flow->tcp_flags & 1) > 0) || ((flow->tcp_flags & 4) > 0)) {
+      
+      // find the flow TODO
+
+
+      // insert the flow TODO
+
+
+      // end of tcp connection -> export the flow
+      if (export_flow(flows[capturedFlow]) != 0) {    // error check
+        printf("EXPORTING - TCP fin\n");
+        delete flow;
+        release_resources();
+        exit(1);
+      }
+      // remove the flow
+      flows.erase(capturedFlow);
+    }
+  }
 
   // find the current flow in flows
   if (flows.find(capturedFlow) != flows.end()) {
@@ -336,21 +391,25 @@ void record_flow(Flowformat *flow) {
     flows[capturedFlow].dPkts++;
     flows[capturedFlow].tcp_flags |= flow->tcp_flags;
   } else {
-    // the flow doesn't exist -> create new record
-    flows[capturedFlow] = *flow;
-  }
-  
-  // check for the end of the TCP connection (FIN (1) or RST (4) flag)
-  if (flow->prot == TCP){
-    if (((flow->tcp_flags & 1) > 0) || ((flow->tcp_flags & 4) > 0)) {
-      // end of tcp connection -> export the flow
-      if (export_flow(flows[capturedFlow]) != 0) {    // error check
+    // the flow doesn't exist yet
+    if (flows.size() == 0 && opts->count == 0) {  // cache size is set to 0 -> export immediately
+      if (export_flow(*flow) != 0) {
         delete flow;
         release_resources();
         exit(1);
       }
-      // remove the flow
-      flows.erase(capturedFlow);
+    } else if (flows.size() == 0) {  // first flow to be inserted in map
+      // create new record
+      flows[capturedFlow] = *flow;
+    } else {
+      // check cache size and export in case it is full
+      if (check_cache_size() != 0) {
+        delete flow;
+        release_resources();
+        exit(1);
+      }
+      // create new record
+      flows[capturedFlow] = *flow;
     }
   }
 }
@@ -645,7 +704,7 @@ int main(int argc, char *argv[]) {
     FlowKey toRemove = get_the_oldest_flow();
 
     printf("REMOVING FLOW - end:\n");   // TODO remove
-    print_flow(flows[toRemove]);        // TODO remove
+    //print_flow(flows[toRemove]);        // TODO remove
 
     // export the oldest flow
     export_flow(flows[toRemove]);
