@@ -11,8 +11,6 @@
 #ifndef ISA_PROJECT_H
 #define ISA_PROJECT_H
 
-#define __FAVOR_BSD
-
 #include <string>
 #include <pcap.h>
 #include <tuple>
@@ -184,13 +182,74 @@ timeval current_time;            // timeval for current packet time
 timeval boot_time;               // timeval for boot time - time of the first packet
 FlowsMap flows;                  // unordered map used for storing recorded flows
 Options *opts;                   // command line options
-pcap_t *pcap;                    // pcap handler
+pcap_t *pcap = NULL;             // pcap handler
 int sock;                        // socket descriptor
 
 
 /*
  * Function declarations.
  */
+
+/**
+ * Function saves the information about UDP source and destination port to the flow record
+ * and records the flow.
+ *
+ * @param packet frame data
+ * @param header_length length of the IP header
+ * @param flowformat flow record to be updated
+ */
+Flowformat *process_udp(const u_char *packet, unsigned int header_length, Flowformat *flowformat);
+
+/**
+ * Function saves the information about TCP source and destination port and TCP flags 
+ * to the flow record and records the flow.
+ * 
+ * @param packet frame data
+ * @param header_length length of the IP header
+ * @param flowformat flow record to be updated
+ */
+Flowformat *process_tcp(const u_char *packet, unsigned int header_length, Flowformat *flowformat);
+
+/**
+ * Function saves the information about ICMP code and type to the flow record
+ * and records the flow.
+ *
+ * @param packet frame data
+ * @param header_length length of the IP header
+ * @param flowformat flow record to be updated
+ */
+Flowformat *process_icmp(const u_char *packet, unsigned int header_length, Flowformat *flowformat);
+
+/**
+ * Function saves the information about source and destination IP address, protocol, 
+ * type of service and number of bytes in the packets of the flow to the flow record,
+ * resolves the protocol and calls the process_{tcp, udp, icmp}() function.
+ *
+ * @param packet packet data
+ * @param flowformat flow record to be updated
+ */
+Flowformat *process_ipv4(const u_char *packet, Flowformat *flowformat);
+
+/**
+ * Callback function that is called by pcap_loop() if a packet is sniffed.
+ * Function processes one frame. It creates flow for the frame and calls process_ipv4()
+ * function that adds additional information to the flow. Then it calls functions 
+ * to save the flow in flows and takes care of the exporting to the collector.
+ *
+ * @param args mandatory argument of the callback function, not used in this function
+ * @param header packet header structure
+ * @param packet frame data
+ */
+void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+
+/**
+ * Function creates a filter for filtering the packets. It filters IPv4 packets 
+ * (UDP, TCP and * ICMP).
+ *
+ * @param fp pointer to the compiled filter expression
+ * @return true if successful, false if an error occurred
+ */
+bool make_filter(struct bpf_program *fp);
 
 /**
  * Function prints help to the standard output.
@@ -258,66 +317,6 @@ int check_cache_size();
  * @param flow flow that should be inserted in the flows map
  */
 void record_flow(Flowformat *flow);
-
-/**
- * Function saves the information about source and destination port to the flow record
- * and records the flow.
- *
- * @param packet frame data
- * @param header_length length of the IP header
- * @param flowformat flow record to be updated
- */
-Flowformat *process_udp(const u_char *packet, unsigned int header_length, Flowformat *flowformat);
-
-/**
- * Function saves the information source and destination port and TCP flags to the flow record
- * and records the flow.
- * 
- * @param packet frame data
- * @param header_length length of the IP header
- * @param flowformat flow record to be updated
- */
-Flowformat *process_tcp(const u_char *packet, unsigned int header_length, Flowformat *flowformat);
-
-/**
- * Function saves the information about code and type to the flow record
- * and records the flow.
- *
- * @param packet frame data
- * @param header_length length of the IP header
- * @param flowformat flow record to be updated
- */
-Flowformat *process_icmp(const u_char *packet, unsigned int header_length, Flowformat *flowformat);
-
-/**
- * Function saves the information about source and destination IP address, protocol, 
- * type of service and number of bytes in the packets of the flow to the flow record,
- * resolves the protocol and calls the process_{tcp, udp, icmp}() function.
- *
- * @param packet packet data
- * @param flowformat flow record to be updated
- */
-Flowformat *process_ipv4(const u_char *packet, Flowformat *flowformat);
-
-/**
- * Callback function that is called by pcap_loop() if a packet is sniffed.
- * Function processes one frame. It creates flow for the frame and calls process_ipv4()
- * function that adds additional information to the flow. Then it calls functions 
- * to save the flow in flows and takes care of the exporting to the collector.
- *
- * @param args mandatory argument of the callback function, not used in this function
- * @param header packet header structure
- * @param packet frame data
- */
-void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
-
-/**
- * Function creates a filter for filtering the packets. It filters IPv4 packets (UDP, TCP and * ICMP).
- *
- * @param fp pointer to the compiled filter expression
- * @return true if successful, false if an error occurred
- */
-bool make_filter(struct bpf_program *fp);
 
 /**
  * Function handler for handling SIGINT signal. Handler breaks the loop that is

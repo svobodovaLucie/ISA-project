@@ -8,10 +8,6 @@
  * ISA project: Generator of NetFlow data from captured network traffic
  */
 
-
-
-// TODO valgrind ./flow -> memcheck
-
 #include "flow.h"
 #include <iostream>
 #include <getopt.h>
@@ -19,12 +15,14 @@
 #include <csignal>
 #include <string.h>
 #include <pcap.h>
+
+#define __FAVOR_BSD
+#include <netdb.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <arpa/inet.h>
 #include <netinet/if_ether.h>
-#include <netinet/tcp.h>
 #include <netinet/ip_icmp.h>
-#include <netinet/udp.h>
-#include <netdb.h>
 
 /**
  * Function prints help to the standard output.
@@ -76,9 +74,18 @@ void release_resources() {
 int load_opts(int argc, char *argv[]) {
   std::string tmp;    // string used for string operations
   int res;            // variable stores the result of getopt() function
-  
+  std::string opts_used = ""; // string that stores all of the command line options used
+
   // parse the command line options using getopt() function
   while ((res = getopt(argc, argv, ":f:c:a:i:m:h")) != -1) {
+
+    // check if the option was already used
+    if (opts_used.find_first_of(res) != std::string::npos) {
+      fprintf(stderr, "error: option %c is used multiple times\n", res);
+      return 1;
+    }
+    opts_used.push_back(res);
+
     switch (res) {
       case 'h':   // help (help is printed in main() -> return 2)
         return 2;
@@ -93,6 +100,10 @@ int load_opts(int argc, char *argv[]) {
         // check address/hostname format
         opts->netflow_collector.resize(0);
         opts->netflow_collector.append(tmp.substr(0, tmp.find_last_of(":")));   // address[hostname]
+        // check if the port is specified
+        if (tmp.find_last_of(":") == std::string::npos) {
+          break;
+        }
         // port number
         tmp = tmp.substr(tmp.find_last_of(":") + 1);
         try {     // port: convert string to number
@@ -101,7 +112,7 @@ int load_opts(int argc, char *argv[]) {
           else
             throw std::invalid_argument("");
         } catch (...) {
-          fprintf(stderr, "invalid port number\n");
+          fprintf(stderr, "error: invalid port number\n");
           return 1;
         }
         break;
@@ -112,10 +123,9 @@ int load_opts(int argc, char *argv[]) {
           else
             throw std::invalid_argument("");
         } catch (...) {
-          fprintf(stderr, "invalid number in option -a\n");
+          fprintf(stderr, "error: invalid number in option -a\n");
           return 1;
         }
-        printf("-a: %u\n", opts->active_timer);
         break;
       case 'i':   // inactive timer
         try {     // convert string to number
@@ -124,7 +134,7 @@ int load_opts(int argc, char *argv[]) {
           else
             throw std::invalid_argument("");
         } catch (...) {
-          fprintf(stderr, "invalid number in option -i\n");
+          fprintf(stderr, "error: invalid number in option -i\n");
           return 1;
         }
         break;
@@ -135,29 +145,16 @@ int load_opts(int argc, char *argv[]) {
           else
             throw std::invalid_argument("");
         } catch (...) {
-          fprintf(stderr, "invalid number in option -m\n");
+          fprintf(stderr, "error: invalid number in option -m\n");
           return 1;
         }
         break;
-      default: // unknown command line option
-        fprintf(stderr, "error in command line options (see -h for help)\n");
+      default:    // unknown command line option
+        fprintf(stderr, "error: error in command line options (see -h for help)\n");
         return 1;
     }
   }
   return 0; // successful
-}
-
-// TODO remove
-void print_flow (Flowformat flow) {
-  struct in_addr ip_addr;
-  ip_addr.s_addr = flow.srcaddr;
-  std::cout << "srcaddr: " << inet_ntoa(ip_addr) << std::endl;
-  ip_addr.s_addr = flow.dstaddr;
-  std::cout << "srcaddr: " << inet_ntoa(ip_addr) << std::endl;
-  std::cout << "sport: " << ntohs(flow.srcport) << std::endl;
-  std::cout << "dport: " << ntohs(flow.dstport) << std::endl;
-  //std::cout << "proto: " << flow.prot << std::endl;
-  //std::cout << "tos: " << flow.tos << std::endl;
 }
 
 /**
@@ -213,9 +210,6 @@ int export_flow(Flowformat flow_to_export) {
   netflowpacket->netflowhdr = netflowhdr;
   netflowpacket->flowformat = flow_to_export;
 
-  printf("EXPORTING FLOW, flow sequence: %d:\n", flow_seq - 1);    // TODO remove
-  print_flow(flow_to_export);                // TODO remove
-
   // send the flow to the collector
   int res = send(sock, netflowpacket, NETFLOW_PACKET_SIZE, 0);  // send data to the server
   delete netflowpacket;
@@ -227,7 +221,7 @@ int export_flow(Flowformat flow_to_export) {
 }
 
 /**
- * Function exports flows for that the active or inactive timer has timed out.
+ * Function exports flows for that the active or inactive timer timed out.
  * 
  * @return 0 if successful, 1 if an error occurred
  */
@@ -237,19 +231,19 @@ int check_timers() {
   FlowKey toRemove;                     // packet with the minimal value
 
   while (packet_to_export && flows.size() != 0) {
-    packet_to_export = false; // in this round we do not have any packet to export
+    packet_to_export = false;
     for (auto& key_value : flows) {
       // check timers
       if (get_sysuptime() - key_value.second.first > opts->active_timer
           || get_sysuptime() - key_value.second.last > opts->inactive_timer) {
-        // timer vyprsel -> zkontrolovat min TODO
+        // compare seconds with the minimum
         if (key_value.second.first < min) {
-          // sekundy jsou mensi -> pohoda je to mensi TODO
+          // save the seconds in minimum
           min = key_value.second.first;
           toRemove = key_value.first;
           packet_to_export = true;
         } else if (key_value.second.first == min) {
-          // porovnat mikrosekundy - ulozeny v nexthop TODO
+          // compare microseconds (stored in nexthop)
           if (key_value.second.nexthop < flows[toRemove].nexthop) {
             min = key_value.second.first;
             toRemove = key_value.first;
@@ -260,22 +254,14 @@ int check_timers() {
     } // for
     if (packet_to_export) {
       // export packet
-      if (get_sysuptime() - flows[toRemove].first > opts->active_timer) {
-        printf("REMOVING FLOW - timer ACTIVE\n");
-      } else if (get_sysuptime() - flows[toRemove].last > opts->inactive_timer) {
-        printf("REMOVING FLOW - timer INACTIVE\n");
-      } else {
-        printf("REMOVING FLOW - timer idk\n");
-      }
       if (export_flow(flows[toRemove]) != 0) {  // error check
         return 1;
       }
       // remove flow from flows
       flows.erase(toRemove);
-      printf("ERASEN %d\n", flow_seq);
     }
   } // while
-  return 0; // TODO budu nekde vracet 1?
+  return 0;
 }
 
 /**
@@ -300,8 +286,8 @@ FlowKey get_the_oldest_flow() {
       min = key_value.second.first;
       toRemove = key_value.first;
     } else if (key_value.second.first ==  min) {
-      // check the value of nanoseconds if the seconds match
-      // nanoseconds are stored in the nexthop value!
+      // check the value of microseconds if the seconds match
+      // microseconds are stored in the nexthop value!
       if (key_value.second.nexthop < flows[toRemove].nexthop) {
         min = key_value.second.first;
         toRemove = key_value.first;
@@ -317,13 +303,9 @@ FlowKey get_the_oldest_flow() {
  * @return 0 if successful, 1 if an error occurred
  */
 int check_cache_size() {
-  printf("cache size: %ld\n", flows.size());
   if (flows.size() >= opts->count) {
     // find the oldest flow
-    FlowKey toRemove = get_the_oldest_flow();   // FIXME what if there are no flows?
-
-    printf("REMOVING FLOW - cache size: %ld\n", flows.size());    // TODO remove
-    //print_flow(flows[toRemove]);                // TODO remove
+    FlowKey toRemove = get_the_oldest_flow();
 
     // export the flow
     if (export_flow(flows[toRemove]) != 0) {    // error check
@@ -344,63 +326,64 @@ int check_cache_size() {
  */
 void record_flow(Flowformat *flow) {
 
-  // check active and inactive timers
+  if (opts->count == 0) {  // cache size is set to 0 -> export immediately
+    if (export_flow(*flow) != 0) {
+      delete flow;
+      release_resources();
+      exit(1);
+    }
+    return;
+  }
+
+  // create the key of the current flow
+  FlowKey capturedFlow = std::make_tuple(flow->srcaddr, flow->dstaddr, flow->prot, 
+                                          flow->tos, flow->srcport, flow->dstport);
+
+  // check TCP flags
+  // if FIN or RST -> save the packet and export and delete from flows
+  if ((flow->tcp_flags & 1) || (flow->tcp_flags & 4)) {
+    if (flows.find(capturedFlow) != flows.end()) {
+      // the flow already exists -> update the flow record
+      flows[capturedFlow].dOctets += flow->dOctets;
+      flows[capturedFlow].last = flow->last;
+      flows[capturedFlow].dPkts++;
+      flows[capturedFlow].tcp_flags |= flow->tcp_flags;
+
+      // export the flow
+      if (export_flow(flows[capturedFlow]) != 0) {    // error check
+        delete flow;
+        release_resources();
+        exit(1);
+      }
+
+      // remove the flow
+      flows.erase(capturedFlow);
+    } else {
+      // the flow doesn't exist -> export the record immediately
+      if (export_flow(*flow) != 0) {                  // error check
+        delete flow;
+        release_resources();
+        exit(1);
+      }
+    }
+  }
+
+  // check timers in flows
   if (check_timers() != 0) {
     delete flow;
     release_resources();
     exit(1);
   }
 
-
-
-  // create the key of the current flow
-  FlowKey capturedFlow = std::make_tuple(flow->srcaddr, flow->dstaddr, flow->prot, 
-                                          flow->tos, flow->srcport, flow->dstport);
-
-  // TODO zkontrolovat nejdrive TCP FIN a RST a az potom cache size
-
-  
-
-  // check for the end of the TCP connection (FIN (1) or RST (4) flag)
-  if (flow->prot == TCP && opts->count != 0){
-    if (((flow->tcp_flags & 1) > 0) || ((flow->tcp_flags & 4) > 0)) {
-      
-      // find the flow TODO
-
-
-      // insert the flow TODO
-
-
-      // end of tcp connection -> export the flow
-      if (export_flow(flows[capturedFlow]) != 0) {    // error check
-        printf("EXPORTING - TCP fin\n");
-        delete flow;
-        release_resources();
-        exit(1);
-      }
-      // remove the flow
-      flows.erase(capturedFlow);
-    }
-  }
-
-  // find the current flow in flows
-  if (flows.find(capturedFlow) != flows.end()) {
-    // the flow already exists -> update the record
-    flows[capturedFlow].dOctets += flow->dOctets;
-    flows[capturedFlow].last = flow->last;
-    flows[capturedFlow].dPkts++;
-    flows[capturedFlow].tcp_flags |= flow->tcp_flags;
-  } else {
-    // the flow doesn't exist yet
-    if (flows.size() == 0 && opts->count == 0) {  // cache size is set to 0 -> export immediately
-      if (export_flow(*flow) != 0) {
-        delete flow;
-        release_resources();
-        exit(1);
-      }
-    } else if (flows.size() == 0) {  // first flow to be inserted in map
-      // create new record
-      flows[capturedFlow] = *flow;
+  // save the current flow (if it has TCP FIN or RST flag the packet has already been exported)
+  if (!((flow->tcp_flags & 1) || (flow->tcp_flags & 4))) {
+    // find the flow in flows
+    if (flows.find(capturedFlow) != flows.end()) {
+      // the flow already exists -> update the record
+      flows[capturedFlow].dOctets += flow->dOctets;
+      flows[capturedFlow].last = flow->last;
+      flows[capturedFlow].dPkts++;
+      flows[capturedFlow].tcp_flags |= flow->tcp_flags;
     } else {
       // check cache size and export in case it is full
       if (check_cache_size() != 0) {
@@ -415,7 +398,7 @@ void record_flow(Flowformat *flow) {
 }
 
 /**
- * Function saves the information about source and destination port to the flow record
+ * Function saves the information about UDP source and destination port to the flow record
  * and records the flow.
  *
  * @param packet frame data
@@ -427,8 +410,8 @@ Flowformat *process_udp(const u_char *packet, unsigned int header_length, Flowfo
   struct udphdr *udp = (struct udphdr *)(packet + header_length);
 
   // update the flowformat record with the info found in UDP protocol
-  flowformat->srcport = udp->source;      // source port
-  flowformat->dstport = udp->dest;        // destination port
+  flowformat->srcport = udp->uh_sport;   // source port
+  flowformat->dstport = udp->uh_dport;    // destination port
 
   // save the flow in flows and export
   record_flow(flowformat);
@@ -436,8 +419,8 @@ Flowformat *process_udp(const u_char *packet, unsigned int header_length, Flowfo
 }
 
 /**
- * Function saves the information source and destination port and TCP flags to the flow record
- * and records the flow.
+ * Function saves the information about TCP source and destination port and TCP flags 
+ * to the flow record and records the flow.
  * 
  * @param packet frame data
  * @param header_length length of the IP header
@@ -458,7 +441,7 @@ Flowformat *process_tcp(const u_char *packet, unsigned int header_length, Flowfo
 }
 
 /**
- * Function saves the information about code and type to the flow record
+ * Function saves the information about ICMP code and type to the flow record
  * and records the flow.
  *
  * @param packet frame data
@@ -570,7 +553,8 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
 }
 
 /**
- * Function creates a filter for filtering the packets. It filters IPv4 packets (UDP, TCP and ICMP).
+ * Function creates a filter for filtering the packets. It filters IPv4 packets 
+ * (UDP, TCP and ICMP).
  *
  * @param fp pointer to the compiled filter expression
  * @return true if successful, false if an error occurred
@@ -578,11 +562,11 @@ void process_frame(u_char *args, const struct pcap_pkthdr *header, const u_char 
 bool make_filter(struct bpf_program *fp) {
     // compile and set the filter to pcap
     if (pcap_compile(pcap, fp, "ip and (udp or tcp or icmp)", 0, PCAP_NETMASK_UNKNOWN) == -1) {
-        fprintf(stderr, "pcap_compile: invalid filter string\n");
+        fprintf(stderr, "pcap_compile(): invalid filter string\n");
         return false;
     }
     if (pcap_setfilter(pcap, fp) == -1) {
-        fprintf(stderr, "pcap_setfilter: Error.\n");
+        fprintf(stderr, "pcap_setfilter(): error\n");
         return false;
     }
     return true;
@@ -598,7 +582,9 @@ bool make_filter(struct bpf_program *fp) {
 void handle_signal(int signum) {
   (void)signum;           // signum is not used here -> remove compiler warning
   sigint_received = 1;    // indicates that SIGINT was received
-  pcap_breakloop(pcap);   // break the sniffing loop
+  if (pcap != NULL) {
+    pcap_breakloop(pcap); // break the sniffing loop
+  }
 }
 
 /**
@@ -617,6 +603,13 @@ int main(int argc, char *argv[]) {
   int res;                    // variable used for storing results from functions
   sigint_received = 0;        // global variable - 0 means SIGINT signal wasn't caught
   int link_layer_header_type; // number of link-layer header type
+
+  // create SIGINT handler
+  struct sigaction sigint_handler;
+  sigint_handler.sa_handler = handle_signal;
+  sigemptyset(&sigint_handler.sa_mask);
+  sigint_handler.sa_flags = 0;
+  sigaction(SIGINT, &sigint_handler, nullptr);
 
   // create opts structure for storing command line options
   opts = new Options;
@@ -683,13 +676,6 @@ int main(int argc, char *argv[]) {
   }      
   // socket created, the flows recording and exporting can start
 
-  // create SIGINT handler
-  struct sigaction sigint_handler;
-  sigint_handler.sa_handler = handle_signal;
-  sigemptyset(&sigint_handler.sa_mask);
-  sigint_handler.sa_flags = 0;
-  sigaction(SIGINT, &sigint_handler, nullptr);
-
   // process each frame, export when necessary in export_flow()
   if (pcap_loop(pcap, -1, process_frame, NULL) != 0) {
     // fewer packets were processed
@@ -702,9 +688,6 @@ int main(int argc, char *argv[]) {
   while (!flows.empty() && !sigint_received) {
     // find the oldest flow
     FlowKey toRemove = get_the_oldest_flow();
-
-    printf("REMOVING FLOW - end:\n");   // TODO remove
-    //print_flow(flows[toRemove]);        // TODO remove
 
     // export the oldest flow
     export_flow(flows[toRemove]);
