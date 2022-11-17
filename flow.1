@@ -1,0 +1,51 @@
+.TH FLOW 1
+.SH NAME
+flow \- NetFlow exporter
+.SH SYNOPSIS
+.B flow
+[\fB\-f\fR \fIfile\fR]
+[\fB\-c\fR \fInetflow_collector\fR[:\fIport\fR]]
+[\fB\-a\fR \fIactive_timer\fR]
+[\fB\-i\fR \fIinactive_timer\fR]
+[\fB\-m\fR \fIcount\fR]
+[\fB\-h\fR]
+.SH DESCRIPTION
+.B flow
+NetFlow exporter for creating flows from network traffic (.pcap files) and exporting them to the collector. NetFlow version 5 is used and TCP, UDP and ICMP packets are processed. Options specify the conditions when a flow should be exported from the flow-cache.
+.SH OPTIONS
+.TP
+.BR \-f " " \fIfile\fR
+Read input data \fIfile\fR. Default is to read from stdin.
+.TP
+.BR \-c " " \fInetflow_collector\fR ":" \fIport\fR
+Export data to \fInetflow_collector\fR:\fIport\fR. Default \fInetflow_collector\fR is 127.0.0.1 and default \fIport\fR is 2055.
+.TP
+.BR \-a " " \fIactive_timer\fR
+Interval (in seconds) after that the active records are exported to the collector. Default value of \fIactive_timer\fR is 60.
+.TP
+.BR \-i " " \fIinactive_timer\fR
+Interval (in seconds) after that the inactive records are exported to the collector. Default value of \fIinactive_timer\fR is 10.
+.TP
+.BR \-m " " \fIcount\fR
+Size of the flow-cache. After hitting this size the oldest record is exported to the collector. Default value of \fIcount\fR is 1024.
+.TP
+.BR \-h
+Prints help message.
+.SH RETURN VALUE
+
+  0    No error.
+  1    Error when processing the packets.
+  2    Error when exporting the flows.
+
+.SH EXAMPLES
+  To create flows from STDIN input with default timers and cache-size and export them to 127.0.0.1:2055.
+  \fB./flow\fR
+
+  To create flows from file 1.pcap with default timers, cache-size and collector.
+  \fB./flow -f 1.pcap\fR
+
+  To create flows from file 1.pcap with default timers, maximal number of flows in the cache is 100, NetFlow packets are sent to 127.0.0.1:2078.
+  \fB./flow -f 1.pcap -c 127.0.0.1:2078 -m 100\fR
+
+  To create flows from STDIN input, maximal number of flows in the cache is 256, active timer is set to 50 s, inactive timer is set to 10 s.
+  \fB./flow -a 50 -i 10 -m 256\fR
