@@ -627,7 +627,7 @@ int main(int argc, char *argv[]) {
   // open pcap file
   pcap = pcap_open_offline(opts->file.c_str(), errbuf);
   if (pcap == nullptr) {
-    fprintf(stderr, "pcap_open_offline() failed: %s", errbuf);
+    fprintf(stderr, "pcap_open_offline() failed: %s\n", errbuf);
     delete opts;
     return 1;
   }
@@ -658,7 +658,7 @@ int main(int argc, char *argv[]) {
   if ((servent = gethostbyname(opts->netflow_collector.c_str())) == NULL) {
     fprintf(stderr,"gethostbyname() failed\n");
     release_resources();
-    return 1;
+    return 2;
   }
   memcpy(&server.sin_addr, servent->h_addr, servent->h_length); 
   server.sin_port = htons(opts->port);        // server port
@@ -666,13 +666,13 @@ int main(int argc, char *argv[]) {
   if ((sock = socket(AF_INET , SOCK_DGRAM , 0)) == -1) {
     fprintf(stderr,"socket() failed\n");
     release_resources();
-    return 1;
+    return 2;
   }            
   // create a connected UDP socket
   if (connect(sock, (struct sockaddr *)&server, sizeof(server))  == -1) {
     fprintf(stderr,"connect() failed\n");
     release_resources();
-    return 1;
+    return 2;
   }      
   // socket created, the flows recording and exporting can start
 
