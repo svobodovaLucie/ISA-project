@@ -4,6 +4,8 @@ Institution: FIT BUT
 Academic year: 2022/2023  
 Course: ISA - Network Applications and Network Administration
 
+Evaluation: 20/20 points  
+
 NetFlow exporter for creating flows from network traffic (.pcap files) and exporting them to the collector. NetFlow version 5 is used. The application is implemented in C++ language using the Packet Capture library ([PCAP](https://www.tcpdump.org/)).
 
 
